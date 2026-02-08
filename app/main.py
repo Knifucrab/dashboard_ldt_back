@@ -1,41 +1,26 @@
-import psycopg2
-from dotenv import load_dotenv
-import os
 from fastapi import FastAPI
-from app.routes import estados
 from app.routes.estados import router as estados_router
+from app.database import engine
+from sqlalchemy import text
 
 app = FastAPI()
 
 app.include_router(estados_router)
 
-load_dotenv()
 
-USER = os.getenv("user")
-PASSWORD = os.getenv("password")
-HOST = os.getenv("host")
-PORT = os.getenv("port")
-DBNAME = os.getenv("dbname")
+@app.get("/help")
+def help_endpoint():
+    return {
+        "status": "ok",
+        "routes": ["/estados", "/auth", "/help", "/docs"]
+    }
 
-try:
-    connection = psycopg2.connect(
-        user=USER,
-        password=PASSWORD,
-        host=HOST,
-        port=PORT,
-        dbname=DBNAME
-    )
-    print("Connection successful!")
-    
-    cursor = connection.cursor()
-    
-    cursor.execute("SELECT NOW();")
-    result = cursor.fetchone()
-    print("Current Time:", result)
 
-    cursor.close()
-    connection.close()
-    print("Connection closed.")
-
-except Exception as e:
-    print(f"Failed to connect: {e}")
+@app.on_event("startup")
+async def startup_event():
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        print("DB connection OK")
+    except Exception as e:
+        print("Failed to connect:", e)

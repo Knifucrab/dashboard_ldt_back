@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.schemas.estado import EstadoCreate, EstadoResponse
 from app.services.estado_service import crear_estado
-from app.dependencies import get_db
+from app.dependencies.db import get_db
 from app.models.estado import Estado 
 
 router = APIRouter(prefix="/estados", tags=["Estados"])

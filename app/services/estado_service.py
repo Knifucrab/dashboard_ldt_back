@@ -1,4 +1,4 @@
-from sqlalchemy import Session
+from sqlalchemy.orm import Session
 from app.models.estado import Estado
 
 MAX_ESTADOS = 15
@@ -11,7 +11,7 @@ def crear_estado(db: Session, nombre: str, orden: int):
     
     nuevo_estado = Estado(nombre=nombre, orden=orden, activo=True)
     db.add(nuevo_estado)
-    db.commt()
+    db.commit()
     db.refresh(nuevo_estado)
     
     return nuevo_estado
