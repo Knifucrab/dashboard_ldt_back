@@ -1,11 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.dependencies import get_db
+from app.dependencies.db import get_db
 from app.dependencies.auth import get_current_user_id
 from app.services.auth_service import login_user
 from app.schemas.auth import LoginRequest, LoginResponse
 from app.models.persona import Persona
+from app.schemas.auth import RegisterRequest
+from app.services.auth_service import register_user
 
 router = APIRouter(
     prefix="/auth",
@@ -53,3 +55,17 @@ def logout(
     auth_user_id: str = Depends(get_current_user_id)
 ):
     return {"success": True}
+
+@router.post("/register")
+def register(
+    data: RegisterRequest,
+    db: Session = Depends(get_db)
+):
+    return register_user(
+        db=db,
+        nombre=data.nombre,
+        apellido=data.apellido,
+        email=data.email,
+        password=data.password,
+        foto_url=data.foto_url
+    )

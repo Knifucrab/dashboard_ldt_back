@@ -1,6 +1,6 @@
 from sqlalchemy import Column, SmallInteger, Integer, Text, DateTime
 from sqlalchemy.sql import func
-from database.base import Base
+from app.database.base import Base
 
 class Profile(Base):
     __tablename__ = "perfiles"

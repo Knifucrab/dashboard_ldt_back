@@ -13,6 +13,7 @@ class Persona(Base):
     nombre = Column(String, nullable=False)
     apellido = Column(String, nullable=False)
     email = Column(String)
+    password = Column(String, nullable=True)
     foto_url = Column(String)
 
     id_rol = Column(ForeignKey("roles.id_rol"), nullable=False)
