@@ -10,6 +10,8 @@ class RegisterRequest(BaseModel):
     email: EmailStr
     password: str | None = None
     foto_url: str | None = None
+    id_rol : int | None = None
+    id_perfil : int | None = None
     
 class UserResponse(BaseModel):
     id: str

@@ -67,5 +67,7 @@ def register(
         apellido=data.apellido,
         email=data.email,
         password=data.password,
-        foto_url=data.foto_url
+        foto_url=data.foto_url,
+        id_rol=data.id_rol,
+        id_perfil=data.id_perfil
     )

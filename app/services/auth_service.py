@@ -46,29 +46,50 @@ def login_user(db: Session, email: str, password: str):
     }
 
 
-def register_user(db: Session, nombre: str, apellido: str, email: str, password: str = None, foto_url: str = None):
+def register_user(db: Session, nombre: str, apellido: str, email: str, password: str = None, foto_url: str = None, id_rol: int = None, id_perfil: int = None):
     # Create local Persona with given fields. Password is optional and will be hashed if provided.
-    print(f"[debug] register_user called with nombre={nombre!r}, apellido={apellido!r}, email={email!r}, foto_url={foto_url!r}, password_provided={bool(password)}")
+    print(f"[debug] register_user called with nombre={nombre!r}, apellido={apellido!r}, email={email!r}, foto_url={foto_url!r}, id_rol={id_rol}, id_perfil={id_perfil}, password_provided={bool(password)}")
 
-    # ensure role and profile exist (create defaults if necessary)
+    # Validate and resolve role
     try:
-        role = db.query(Role).first()
-        if not role:
-            print("[debug] no role found, creating default role")
-            role = Role(id_rol=1, descripcion="default")
-            db.add(role)
+        if id_rol is not None:
+            role = db.query(Role).filter(Role.id_rol == id_rol).first()
+            if not role:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"El rol con id_rol={id_rol} no existe."
+                )
+        else:
+            # Default: first available role
+            role = db.query(Role).first()
+            if not role:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="No hay roles configurados en el sistema."
+                )
 
-        perfil = db.query(Profile).first()
-        if not perfil:
-            print("[debug] no profile found, creating default profile")
-            perfil = Profile(id_perfil=1, descripcion="default", nivel_acceso=3)
-            db.add(perfil)
-
-        db.commit()
+        # Validate and resolve profile
+        if id_perfil is not None:
+            perfil = db.query(Profile).filter(Profile.id_perfil == id_perfil).first()
+            if not perfil:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"El perfil con id_perfil={id_perfil} no existe."
+                )
+        else:
+            # Default: first available profile
+            perfil = db.query(Profile).first()
+            if not perfil:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="No hay perfiles configurados en el sistema."
+                )
+    except HTTPException:
+        raise
     except Exception as e:
-        print("[error] failed ensuring role/profile:")
+        print("[error] failed resolving role/profile:")
         traceback.print_exc()
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error interno creando role/perfil")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error interno validando role/perfil")
 
     persona = Persona(
         auth_user_id=uuid.uuid4(),
