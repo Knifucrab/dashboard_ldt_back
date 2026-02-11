@@ -1,0 +1,78 @@
+{
+  "_type": "collection",
+  "name": "Iglesia LMDT - API",
+  "requests": [
+    {
+      "_id": "tc-register-maestro",
+      "name": "Register Maestro (POST /auth/register/maestro)",
+      "method": "POST",
+      "url": "http://127.0.0.1:8000/auth/register/maestro",
+      "header": [{ "key": "Content-Type", "value": "application/json" }],
+      "body": {
+        "type": "json",
+        "raw": "{\n  \"nombre\": \"Juan\",\n  \"apellido\": \"Maestro\",\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\",\n  \"telefono\": \"555-1234\",\n  \"direccion\": \"Calle Principal 123\"\n}"
+      }
+    },
+    {
+      "_id": "tc-register-alumno",
+      "name": "Register Alumno (POST /auth/register/alumno)",
+      "method": "POST",
+      "url": "http://127.0.0.1:8000/auth/register/alumno",
+      "header": [{ "key": "Content-Type", "value": "application/json" }],
+      "body": {
+        "type": "json",
+        "raw": "{\n  \"nombre\": \"Maria\",\n  \"apellido\": \"Alumna\",\n  \"maestro_asignado\": \"PONER_ID_PERSONA_DEL_MAESTRO_AQUI\",\n  \"foto_url\": null,\n  \"dias\": {\"lunes\": true, \"miercoles\": true},\n  \"franja_horaria\": \"18:00-20:00\",\n  \"motivo_oracion\": \"Crecimiento espiritual\"\n}"
+      }
+    },
+    {
+      "_id": "tc-login",
+      "name": "Login (POST /auth/login)",
+      "method": "POST",
+      "url": "http://127.0.0.1:8000/auth/login",
+      "header": [{ "key": "Content-Type", "value": "application/json" }],
+      "body": {
+        "type": "json",
+        "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}"
+      }
+    },
+    {
+      "_id": "tc-me",
+      "name": "Get current user (GET /auth/me)",
+      "method": "GET",
+      "url": "http://127.0.0.1:8000/auth/me",
+      "header": [
+        { "key": "Authorization", "value": "Bearer {{token}}" }
+      ]
+    },
+    {
+      "_id": "tc-alumnos",
+      "name": "Get alumnos del maestro (GET /alumnos)",
+      "method": "GET",
+      "url": "http://127.0.0.1:8000/alumnos",
+      "header": [
+        { "key": "Authorization", "value": "Bearer {{token}}" }
+      ]
+    },
+    {
+      "_id": "tc-alumnos-pastor",
+      "name": "Get alumnos by maestroId - Pastor (GET /alumnos?maestroId=xxx)",
+      "method": "GET",
+      "url": "http://127.0.0.1:8000/alumnos?maestroId={{maestroId}}",
+      "header": [
+        { "key": "Authorization", "value": "Bearer {{token}}" }
+      ]
+    }
+  ],
+  "environments": [
+    {
+      "_id": "env-local",
+      "name": "Local",
+      "values": [
+        { "key": "email", "value": "maestro@example.com" },
+        { "key": "password", "value": "Password123!" },
+        { "key": "token", "value": "" },
+        { "key": "maestroId", "value": "PONER_ID_PERSONA_DEL_MAESTRO_AQUI" }
+      ]
+    }
+  ]
+}

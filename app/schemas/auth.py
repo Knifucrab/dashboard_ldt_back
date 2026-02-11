@@ -12,6 +12,24 @@ class RegisterRequest(BaseModel):
     foto_url: str | None = None
     id_rol : int | None = None
     id_perfil : int | None = None
+
+class RegisterMaestroRequest(BaseModel):
+    nombre: str
+    apellido: str
+    email: EmailStr
+    password: str
+    foto_url: str | None = None
+    telefono: str | None = None
+    direccion: str | None = None
+
+class RegisterAlumnoRequest(BaseModel):
+    nombre: str
+    apellido: str
+    foto_url: str | None = None
+    maestro_asignado: str  # id_persona del maestro
+    dias: dict | None = None
+    franja_horaria: str | None = None
+    motivo_oracion: str | None = None
     
 class UserResponse(BaseModel):
     id: str

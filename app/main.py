@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from app.routes.estados import router as estados_router
 from app.routes.auth import router as auth_router
+from app.routes.alumnos import router as alumnos_router
 from app.database import engine
 from sqlalchemy import text
 
@@ -8,13 +9,27 @@ app = FastAPI()
 
 app.include_router(estados_router)
 app.include_router(auth_router)
+app.include_router(alumnos_router)
 
 
 @app.get("/help")
 def help_endpoint():
     return {
         "status": "ok",
-        "routes": ["/estados", "/auth", "/help", "/docs"]
+        "routes": ["/estados", "/auth", "/alumnos", "/help", "/docs"],
+        "endpoints": {
+            "/alumnos": {
+                "GET": {
+                    "description": "Obtiene alumnos asignados a un maestro",
+                    "query_params": {
+                        "maestroId": "(opcional) ID de persona del maestro. Si no se proporciona, retorna alumnos del maestro autenticado. Solo pastores pueden usar este parámetro para consultar otros maestros."
+                    },
+                    "headers": {
+                        "Authorization": "Bearer {token}"
+                    }
+                }
+            }
+        }
     }
 
 
