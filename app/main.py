@@ -20,9 +20,17 @@ def help_endpoint():
 
 @app.on_event("startup")
 async def startup_event():
+    """
+    Verifica conexión a BD al iniciar.
+    En Vercel serverless, esto puede no ejecutarse en cada invocación.
+    """
     try:
-        with engine.connect() as conn:
-            conn.execute(text("SELECT 1"))
-        print("DB connection OK")
+        import os
+        if os.getenv("DATABASE_URL"):
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            print("DB connection OK")
+        else:
+            print("DATABASE_URL not configured, skipping DB check")
     except Exception as e:
-        print("Failed to connect:", e)
+        print(f"Failed to connect to DB: {e}")
