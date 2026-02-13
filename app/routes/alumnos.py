@@ -386,3 +386,83 @@ def update_alumno(
             } if maestro_asignado else None
         }
     }
+
+
+@router.delete("/{id_alumno}")
+def delete_alumno(
+    id_alumno: str,
+    auth_user_id: str = Depends(get_current_user_id),
+    db: Session = Depends(get_db)
+):
+    """
+    Elimina un alumno y sus datos relacionados (tarjeta, observaciones).
+
+    - Los pastores (id_rol=1) pueden eliminar cualquier alumno.
+    - Los maestros (id_rol=2) solo pueden eliminar alumnos asignados a ellos.
+    """
+
+    # 1. Obtener la persona autenticada
+    persona_autenticada = db.query(Persona).filter(Persona.auth_user_id == auth_user_id).first()
+    if not persona_autenticada:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Persona no encontrada"
+        )
+
+    # 2. Verificar roles
+    person_roles = db.query(PersonRole).filter(PersonRole.person_id == persona_autenticada.id_persona).all()
+    roles = [pr.id_rol for pr in person_roles]
+    es_pastor = 1 in roles
+    es_maestro = 2 in roles
+
+    if not es_pastor and not es_maestro:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permisos para eliminar alumnos"
+        )
+
+    # 3. Buscar alumno y tarjeta
+    alumno = db.query(Alumno).filter(Alumno.id_alumno == id_alumno).first()
+    if not alumno:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Alumno con id {id_alumno} no encontrado"
+        )
+
+    tarjeta = db.query(Tarjeta).filter(Tarjeta.id_alumno == id_alumno).first()
+    if not tarjeta:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No se encontró información de asignación para este alumno"
+        )
+
+    # 4. Si es maestro, verificar asignación
+    if es_maestro and not es_pastor:
+        maestro = db.query(Maestro).filter(Maestro.id_persona == persona_autenticada.id_persona).first()
+        if not maestro:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Usuario no tiene registro de maestro en el sistema"
+            )
+
+        if tarjeta.id_maestro_asignado != maestro.id_maestro:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No tienes permiso para eliminar este alumno"
+            )
+
+    # 5. Eliminar registros relacionados (tarjeta y alumno). Las FK con ON DELETE CASCADE
+    # deberían encargarse de otras relaciones, pero borramos explícitamente para claridad.
+    try:
+        if tarjeta:
+            db.delete(tarjeta)
+        db.delete(alumno)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al eliminar el alumno: {str(e)}"
+        )
+
+    return {"message": "Alumno eliminado correctamente", "id_alumno": str(id_alumno)}

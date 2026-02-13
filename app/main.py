@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.routes.estados import router as estados_router
 from app.routes.auth import router as auth_router
 from app.routes.alumnos import router as alumnos_router
+from app.routes.maestros import router as maestros_router
 from app.database import engine
 from sqlalchemy import text
 from contextlib import asynccontextmanager
@@ -44,6 +45,7 @@ app.add_middleware(
 app.include_router(estados_router)
 app.include_router(auth_router)
 app.include_router(alumnos_router)
+app.include_router(maestros_router)
 
 
 @app.get("/help")
