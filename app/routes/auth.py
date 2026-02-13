@@ -6,6 +6,7 @@ from app.dependencies.auth import get_current_user_id
 from app.services.auth_service import login_user, register_user, register_maestro, register_alumno
 from app.schemas.auth import LoginRequest, LoginResponse, RegisterRequest, RegisterMaestroRequest, RegisterAlumnoRequest
 from app.models.persona import Persona
+from app.models.person_role import PersonRole
 
 router = APIRouter(
     prefix="/auth",
@@ -40,11 +41,16 @@ def obtener_usuario_actual(
             detail="Usuario no autorizado."
         )
 
+    # Obtener roles del usuario desde person_roles
+    person_roles = db.query(PersonRole).filter(PersonRole.person_id == persona.id_persona).all()
+    roles = [pr.id_rol for pr in person_roles]
+
     return {
         "id_persona": persona.id_persona,
         "nombre": persona.nombre,
         "apellido": persona.apellido,
-        "rol": persona.id_rol,
+        "rol": roles[0] if roles else None,
+        "roles": roles,
         "perfil": persona.id_perfil
     }
 

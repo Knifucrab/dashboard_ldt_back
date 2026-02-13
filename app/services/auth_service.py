@@ -5,6 +5,7 @@ from sqlalchemy.exc import IntegrityError
 from app.models.persona import Persona
 from app.models.maestro import Maestro
 from app.models.alumno import Alumno
+from app.models.person_role import PersonRole
 from app.core.security import create_access_token, hash_password, verify_password
 from app.integrations.supabase_auth import supabase_login
 from app.core.config import settings
@@ -56,6 +57,10 @@ def login_user(db: Session, email: str, password: str):
     if not persona:
         raise HTTPException(status_code=404, detail="Usuario no registrado en el sistema")
     
+    # Obtener roles del usuario desde person_roles
+    person_roles = db.query(PersonRole).filter(PersonRole.person_id == persona.id_persona).all()
+    roles = [pr.id_rol for pr in person_roles]
+    
     # Crear token JWT
     token = create_access_token(subject=persona.auth_user_id)
     
@@ -64,7 +69,8 @@ def login_user(db: Session, email: str, password: str):
             "id": str(persona.id_persona),
             "email": persona.email,
             "name": f"{persona.nombre} {persona.apellido}",
-            "role": str(persona.id_rol),
+            "role": str(roles[0]) if roles else None,
+            "roles": [str(r) for r in roles],
             "avatar": persona.foto_url
         },
         "token": token
@@ -125,7 +131,6 @@ def register_user(db: Session, nombre: str, apellido: str, email: str, password:
         apellido=apellido or "",
         email=email,
         foto_url=foto_url,
-        id_rol=role.id_rol,
         id_perfil=perfil.id_perfil,
     )
 
@@ -136,6 +141,15 @@ def register_user(db: Session, nombre: str, apellido: str, email: str, password:
             print("[debug] password hashed and set on persona")
 
         db.add(persona)
+        db.flush()  # Obtener id_persona sin hacer commit
+        
+        # Crear relación en person_roles
+        person_role = PersonRole(
+            person_id=persona.id_persona,
+            id_rol=role.id_rol
+        )
+        db.add(person_role)
+        
         print("[debug] persona added to session, committing...")
         db.commit()
         db.refresh(persona)
@@ -205,11 +219,17 @@ def register_maestro(
             email=email,
             password=hash_password(password),
             foto_url=foto_url,
-            id_rol=role_maestro.id_rol,
             id_perfil=perfil.id_perfil
         )
         db.add(persona)
         db.flush()  # Obtener id_persona sin hacer commit
+        
+        # Asignar rol de Maestro en person_roles
+        person_role = PersonRole(
+            person_id=persona.id_persona,
+            id_rol=role_maestro.id_rol
+        )
+        db.add(person_role)
         
         # Crear maestro
         maestro = Maestro(
@@ -304,11 +324,17 @@ def register_alumno(
             email=None,  # Alumno no tiene email
             password=None,  # Alumno no tiene password
             foto_url=foto_url,
-            id_rol=role_alumno.id_rol,
             id_perfil=perfil.id_perfil
         )
         db.add(persona)
         db.flush()  # Obtener id_persona sin hacer commit
+        
+        # Asignar rol de Alumno en person_roles
+        person_role = PersonRole(
+            person_id=persona.id_persona,
+            id_rol=role_alumno.id_rol
+        )
+        db.add(person_role)
         
         # Crear alumno
         alumno = Alumno(

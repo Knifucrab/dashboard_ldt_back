@@ -16,7 +16,6 @@ class Persona(Base):
     password = Column(String, nullable=True)
     foto_url = Column(String)
 
-    id_rol = Column(ForeignKey("roles.id_rol"), nullable=False)
     id_perfil = Column(ForeignKey("perfiles.id_perfil"), nullable=False)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

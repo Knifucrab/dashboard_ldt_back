@@ -54,9 +54,13 @@ def help_endpoint():
         "endpoints": {
             "/alumnos": {
                 "GET": {
-                    "description": "Obtiene alumnos asignados a un maestro",
+                    "description": "Obtiene alumnos según el rol del usuario autenticado",
+                    "comportamiento": {
+                        "pastor": "Si role === 'pastor' (id_rol=1): Sin maestroId devuelve TODOS los alumnos. Con maestroId filtra por ese maestro específico.",
+                        "maestro": "Si role === 'maestro' (id_rol=2): Devuelve solo los alumnos asignados al maestro autenticado. El parámetro maestroId es ignorado."
+                    },
                     "query_params": {
-                        "maestroId": "(opcional) ID de persona del maestro. Si no se proporciona, retorna alumnos del maestro autenticado. Solo pastores pueden usar este parámetro para consultar otros maestros."
+                        "maestroId": "(opcional, solo para pastores) ID de persona del maestro para filtrar alumnos."
                     },
                     "headers": {
                         "Authorization": "Bearer {token}"

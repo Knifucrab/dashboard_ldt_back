@@ -5,6 +5,7 @@ from app.models.role import Role
 from app.models.profile import Profile
 from app.models.estado import Estado
 from app.models.persona import Persona
+from app.models.person_role import PersonRole
 from app.models.maestro import Maestro
 from app.models.alumno import Alumno
 from app.models.observacion import Observacion
@@ -16,6 +17,7 @@ __all__ = [
     "Profile",
     "Estado",
     "Persona",
+    "PersonRole",
     "Maestro",
     "Alumno",
     "Observacion",
