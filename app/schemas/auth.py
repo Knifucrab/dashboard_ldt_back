@@ -41,3 +41,24 @@ class UserResponse(BaseModel):
 class LoginResponse(BaseModel):
     user: UserResponse
     token: str
+
+
+class MaestroUpdate(BaseModel):
+    nombre: str | None = None
+    apellido: str | None = None
+    email: EmailStr | None = None
+    foto_url: str | None = None
+    telefono: str | None = None
+    direccion: str | None = None
+    password: str | None = None
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "nombre": "Juan",
+                "apellido": "Perez",
+                "email": "juan.perez@example.com",
+                "telefono": "555-1234",
+                "direccion": "Calle 123",
+            }
+        }
