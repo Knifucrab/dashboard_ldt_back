@@ -7,10 +7,11 @@ from app.models.maestro import Maestro
 from app.models.persona import Persona
 from app.schemas.auth import RegisterMaestroRequest
 from app.services.auth_service import register_maestro
-from app.schemas.auth import MaestroUpdate
+from app.schemas.auth import MaestroUpdate, ChangeProfileRequest
 from app.models.person_role import PersonRole
 from app.core.security import hash_password
 from app.models.role import Role
+from app.models.profile import Profile
 
 router = APIRouter(prefix="/maestros", tags=["Maestros"])
 
@@ -187,6 +188,110 @@ def update_maestro(
         "telefono": maestro.telefono,
         "direccion": maestro.direccion,
         "created_at": maestro.created_at.isoformat() if getattr(maestro, "created_at", None) else None
+    }
+
+
+@router.patch("/{id_maestro}/permisos")
+def change_maestro_permissions(
+    id_maestro: str,
+    data: ChangeProfileRequest,
+    auth_user_id: str = Depends(get_current_user_id),
+    db: Session = Depends(get_db)
+):
+    """
+    Cambia el perfil de un maestro (ej: de Usuario a Administrador).
+    Solo accesible por pastores (rol=1).
+    Los perfiles disponibles son: Administrador, Moderador, Usuario.
+    """
+    
+    # Verificar que el usuario autenticado sea un pastor
+    persona_autenticada = db.query(Persona).filter(Persona.auth_user_id == auth_user_id).first()
+    if not persona_autenticada:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Persona no encontrada"
+        )
+    
+    # Verificar que el usuario autenticado es pastor
+    person_roles = db.query(PersonRole).filter(PersonRole.person_id == persona_autenticada.id_persona).all()
+    roles = [pr.id_rol for pr in person_roles]
+    es_pastor = 1 in roles
+    
+    if not es_pastor:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo los pastores pueden cambiar permisos"
+        )
+    
+    # Verificar que el maestro existe
+    maestro = db.query(Maestro).filter(Maestro.id_maestro == id_maestro).first()
+    if not maestro:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Maestro con id {id_maestro} no encontrado"
+        )
+    
+    # Verificar que el perfil a asignar existe
+    perfil_nuevo = db.query(Profile).filter(Profile.id_perfil == data.id_perfil).first()
+    if not perfil_nuevo:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Perfil con id {data.id_perfil} no encontrado"
+        )
+    
+    # Obtener la persona asociada al maestro
+    persona = db.query(Persona).filter(Persona.id_persona == maestro.id_persona).first()
+    if not persona:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Persona asociada al maestro no encontrada"
+        )
+    
+    # Verificar si ya tiene ese perfil
+    if persona.id_perfil == data.id_perfil:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"El maestro ya tiene el perfil '{perfil_nuevo.descripcion}'"
+        )
+    
+    # Guardar el perfil anterior para el mensaje
+    perfil_anterior = db.query(Profile).filter(Profile.id_perfil == persona.id_perfil).first()
+    
+    # Cambiar el perfil del maestro
+    try:
+        persona.id_perfil = data.id_perfil
+        db.commit()
+        db.refresh(persona)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al cambiar perfil: {str(e)}"
+        )
+    
+    # Obtener roles del maestro
+    all_roles = db.query(PersonRole).filter(PersonRole.person_id == maestro.id_persona).all()
+    roles_list = []
+    for pr in all_roles:
+        role = db.query(Role).filter(Role.id_rol == pr.id_rol).first()
+        if role:
+            roles_list.append({
+                "id_rol": role.id_rol,
+                "descripcion": role.descripcion
+            })
+    
+    return {
+        "message": f"Perfil cambiado de '{perfil_anterior.descripcion if perfil_anterior else 'Desconocido'}' a '{perfil_nuevo.descripcion}' exitosamente",
+        "id_maestro": str(maestro.id_maestro),
+        "id_persona": str(maestro.id_persona),
+        "nombre": persona.nombre,
+        "apellido": persona.apellido,
+        "perfil_actual": {
+            "id_perfil": perfil_nuevo.id_perfil,
+            "descripcion": perfil_nuevo.descripcion,
+            "nivel_acceso": perfil_nuevo.nivel_acceso
+        },
+        "roles": roles_list
     }
 
 

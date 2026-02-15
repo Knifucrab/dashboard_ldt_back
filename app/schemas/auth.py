@@ -62,3 +62,14 @@ class MaestroUpdate(BaseModel):
                 "direccion": "Calle 123",
             }
         }
+
+
+class ChangeProfileRequest(BaseModel):
+    id_perfil: int
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "id_perfil": 1
+            }
+        }
