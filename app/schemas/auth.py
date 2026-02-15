@@ -73,3 +73,21 @@ class ChangeProfileRequest(BaseModel):
                 "id_perfil": 1
             }
         }
+
+
+class PersonaUpdate(BaseModel):
+    nombre: str | None = None
+    apellido: str | None = None
+    email: EmailStr | None = None
+    foto_url: str | None = None
+    password: str | None = None
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "nombre": "Juan",
+                "apellido": "Pérez",
+                "email": "juan.perez@example.com",
+                "foto_url": "https://example.com/foto.jpg"
+            }
+        }
