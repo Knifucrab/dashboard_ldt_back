@@ -3,8 +3,8 @@ from sqlalchemy.orm import Session
 
 from app.dependencies.db import get_db
 from app.dependencies.auth import get_current_user_id
-from app.services.auth_service import login_user, register_user, register_maestro, register_alumno
-from app.schemas.auth import LoginRequest, LoginResponse, RegisterRequest, RegisterMaestroRequest, RegisterAlumnoRequest
+from app.services.auth_service import login_user, register_user, register_alumno
+from app.schemas.auth import LoginRequest, LoginResponse, RegisterRequest, RegisterAlumnoRequest
 from app.models.persona import Persona
 from app.models.person_role import PersonRole
 
@@ -74,26 +74,6 @@ def register(
         foto_url=data.foto_url,
         id_rol=data.id_rol,
         id_perfil=data.id_perfil
-    )
-
-@router.post("/register/maestro")
-def register_maestro_endpoint(
-    data: RegisterMaestroRequest,
-    db: Session = Depends(get_db)
-):
-    """
-    Registra un nuevo maestro.
-    Crea automáticamente registros en 'personas' y 'maestros'.
-    """
-    return register_maestro(
-        db=db,
-        nombre=data.nombre,
-        apellido=data.apellido,
-        email=data.email,
-        password=data.password,
-        foto_url=data.foto_url,
-        telefono=data.telefono,
-        direccion=data.direccion
     )
 
 @router.post("/register/alumno")
