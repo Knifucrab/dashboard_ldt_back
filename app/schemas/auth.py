@@ -18,7 +18,7 @@ class RegisterMaestroRequest(BaseModel):
     apellido: str
     email: EmailStr
     password: str
-    foto_url: str | None = None
+    foto_url: str
     telefono: str | None = None
     direccion: str | None = None
 

@@ -9,6 +9,7 @@ from app.models.role import Role
 from app.models.profile import Profile
 from app.models.maestro import Maestro
 from app.models.alumno import Alumno
+from app.models.tarjeta import Tarjeta
 from app.schemas.auth import PersonaUpdate
 from app.core.security import hash_password
 
@@ -35,26 +36,41 @@ def get_personas(
             detail="Persona no encontrada"
         )
 
-    # Verificar que sea pastor
     person_roles = db.query(PersonRole).filter(PersonRole.person_id == persona_autenticada.id_persona).all()
     roles = [pr.id_rol for pr in person_roles]
     es_pastor = 1 in roles
+    es_maestro = persona_autenticada.id_perfil == 2
 
-    if not es_pastor:
+    if not es_pastor and not es_maestro:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Solo los pastores pueden ver todas las personas"
+            detail="No tienes permisos para ver personas"
         )
 
-    # Obtener todas las personas
-    personas = db.query(Persona).all()
+    # --- Maestro: solo devuelve sus alumnos asignados ---
+    if es_maestro and not es_pastor:
+        maestro = db.query(Maestro).filter(Maestro.id_persona == persona_autenticada.id_persona).first()
+        if not maestro:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No se encontró el registro de maestro para este usuario"
+            )
+
+        tarjetas = db.query(Tarjeta).filter(Tarjeta.id_maestro_asignado == maestro.id_maestro).all()
+        id_alumnos = [t.id_alumno for t in tarjetas]
+
+        alumnos = db.query(Alumno).filter(Alumno.id_alumno.in_(id_alumnos)).all()
+        id_personas_alumnos = [a.id_persona for a in alumnos]
+
+        personas = db.query(Persona).filter(Persona.id_persona.in_(id_personas_alumnos)).all()
+    else:
+        # --- Pastor: devuelve todas las personas ---
+        personas = db.query(Persona).all()
+
     result = []
-    
     for persona in personas:
-        # Obtener perfil
         perfil = db.query(Profile).filter(Profile.id_perfil == persona.id_perfil).first()
-        
-        # Obtener roles
+
         person_roles_list = db.query(PersonRole).filter(PersonRole.person_id == persona.id_persona).all()
         roles_list = []
         for pr in person_roles_list:
@@ -64,7 +80,7 @@ def get_personas(
                     "id_rol": role.id_rol,
                     "descripcion": role.descripcion
                 })
-        
+
         result.append({
             "id_persona": str(persona.id_persona),
             "auth_user_id": str(persona.auth_user_id),
