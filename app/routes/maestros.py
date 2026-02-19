@@ -24,7 +24,8 @@ def get_maestros(
     """
     Devuelve la lista de maestros.
 
-    Requiere autenticación. Retorna datos básicos de la persona y del maestro.
+    Requiere autenticación de administrador (nivel_acceso=1).
+    Retorna datos básicos de la persona y del maestro.
     """
 
     # Verificar que el usuario autenticado exista
@@ -33,6 +34,20 @@ def get_maestros(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Persona no encontrada"
+        )
+
+    # Verificar que sea administrador
+    perfil = db.query(Profile).filter(Profile.id_perfil == persona_autenticada.id_perfil).first()
+    if not perfil:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Perfil no encontrado"
+        )
+
+    if perfil.nivel_acceso != 1:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo los administradores pueden listar maestros"
         )
 
     maestros = db.query(Maestro).all()
@@ -96,8 +111,29 @@ def create_maestro(
 ):
     """
     Crea un nuevo maestro (persona + maestro + rol) usando la lógica de `register_maestro`.
-    Requiere autenticación.
+    Requiere autenticación de administrador (nivel_acceso=1).
     """
+
+    # Verificar que el usuario autenticado sea administrador
+    persona_autenticada = db.query(Persona).filter(Persona.auth_user_id == auth_user_id).first()
+    if not persona_autenticada:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Persona no encontrada"
+        )
+
+    perfil = db.query(Profile).filter(Profile.id_perfil == persona_autenticada.id_perfil).first()
+    if not perfil:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Perfil no encontrado"
+        )
+
+    if perfil.nivel_acceso != 1:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo los administradores pueden crear maestros"
+        )
 
     return register_maestro(
         db=db,
@@ -120,7 +156,8 @@ def update_maestro(
 ):
     """
     Actualiza datos de un maestro y su persona asociada.
-    - Pastores (rol=1) pueden actualizar cualquiera.
+    - Administradores (nivel_acceso=1) pueden actualizar cualquier maestro.
+    - Pastores (rol=1) pueden actualizar cualquier maestro.
     - Maestros (rol=2) solo pueden actualizar su propio registro.
     """
 
@@ -128,24 +165,40 @@ def update_maestro(
     if not persona_autenticada:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Persona no encontrada")
 
-    # roles
-    person_roles = db.query(PersonRole).filter(PersonRole.person_id == persona_autenticada.id_persona).all()
-    roles = [pr.id_rol for pr in person_roles]
-    es_pastor = 1 in roles
-    es_maestro = 2 in roles
+    # Verificar perfil
+    perfil = db.query(Profile).filter(Profile.id_perfil == persona_autenticada.id_perfil).first()
+    if not perfil:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Perfil no encontrado"
+        )
 
-    if not es_pastor and not es_maestro:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No tienes permisos para actualizar maestros")
+    es_admin = perfil.nivel_acceso == 1
+
+    # Si no es admin, verificar roles
+    if not es_admin:
+        person_roles = db.query(PersonRole).filter(PersonRole.person_id == persona_autenticada.id_persona).all()
+        roles = [pr.id_rol for pr in person_roles]
+        es_pastor = 1 in roles
+        es_maestro = 2 in roles
+
+        if not es_pastor and not es_maestro:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No tienes permisos para actualizar maestros")
+    else:
+        es_pastor = False
+        es_maestro = False
 
     maestro = db.query(Maestro).filter(Maestro.id_maestro == id_maestro).first()
     if not maestro:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Maestro con id {id_maestro} no encontrado")
 
-    # si es maestro, verificar que sea el suyo
-    if es_maestro and not es_pastor:
-        maestro_propio = db.query(Maestro).filter(Maestro.id_persona == persona_autenticada.id_persona).first()
-        if not maestro_propio or str(maestro_propio.id_maestro) != str(id_maestro):
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No puedes actualizar este maestro")
+    # Si no es admin, verificar permisos adicionales
+    if not es_admin:
+        # si es maestro (y no pastor), verificar que sea el suyo
+        if es_maestro and not es_pastor:
+            maestro_propio = db.query(Maestro).filter(Maestro.id_persona == persona_autenticada.id_persona).first()
+            if not maestro_propio or str(maestro_propio.id_maestro) != str(id_maestro):
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No puedes actualizar este maestro")
 
     persona = db.query(Persona).filter(Persona.id_persona == maestro.id_persona).first()
     if not persona:
@@ -200,11 +253,11 @@ def change_maestro_permissions(
 ):
     """
     Cambia el perfil de un maestro (ej: de Usuario a Administrador).
-    Solo accesible por pastores (rol=1).
+    Solo accesible por administradores (nivel_acceso=1).
     Los perfiles disponibles son: Administrador, Moderador, Usuario.
     """
     
-    # Verificar que el usuario autenticado sea un pastor
+    # Verificar que el usuario autenticado exista
     persona_autenticada = db.query(Persona).filter(Persona.auth_user_id == auth_user_id).first()
     if not persona_autenticada:
         raise HTTPException(
@@ -212,15 +265,18 @@ def change_maestro_permissions(
             detail="Persona no encontrada"
         )
     
-    # Verificar que el usuario autenticado es pastor
-    person_roles = db.query(PersonRole).filter(PersonRole.person_id == persona_autenticada.id_persona).all()
-    roles = [pr.id_rol for pr in person_roles]
-    es_pastor = 1 in roles
+    # Verificar que el usuario autenticado es administrador
+    perfil = db.query(Profile).filter(Profile.id_perfil == persona_autenticada.id_perfil).first()
+    if not perfil:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Perfil no encontrado"
+        )
     
-    if not es_pastor:
+    if perfil.nivel_acceso != 1:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Solo los pastores pueden cambiar permisos"
+            detail="Solo los administradores pueden cambiar permisos"
         )
     
     # Verificar que el maestro existe
@@ -302,19 +358,26 @@ def delete_maestro(
     db: Session = Depends(get_db)
 ):
     """
-    Elimina un maestro y la persona asociada. Solo permitido para pastores (rol=1).
+    Elimina un maestro y la persona asociada. Solo permitido para administradores (nivel_acceso=1).
     """
 
     persona_autenticada = db.query(Persona).filter(Persona.auth_user_id == auth_user_id).first()
     if not persona_autenticada:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Persona no encontrada")
 
-    person_roles = db.query(PersonRole).filter(PersonRole.person_id == persona_autenticada.id_persona).all()
-    roles = [pr.id_rol for pr in person_roles]
-    es_pastor = 1 in roles
+    # Verificar que sea administrador
+    perfil = db.query(Profile).filter(Profile.id_perfil == persona_autenticada.id_perfil).first()
+    if not perfil:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Perfil no encontrado"
+        )
 
-    if not es_pastor:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No tienes permisos para eliminar maestros")
+    if perfil.nivel_acceso != 1:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo los administradores pueden eliminar maestros"
+        )
 
     maestro = db.query(Maestro).filter(Maestro.id_maestro == id_maestro).first()
     if not maestro:
