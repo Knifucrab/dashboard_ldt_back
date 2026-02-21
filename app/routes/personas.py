@@ -81,7 +81,7 @@ def get_personas(
                     "descripcion": role.descripcion
                 })
 
-        result.append({
+        persona_data = {
             "id_persona": str(persona.id_persona),
             "auth_user_id": str(persona.auth_user_id),
             "nombre": persona.nombre,
@@ -95,7 +95,49 @@ def get_personas(
             } if perfil else None,
             "roles": roles_list,
             "created_at": persona.created_at.isoformat() if persona.created_at else None
-        })
+        }
+
+        # Verificar si es maestro y agregar información de maestro
+        maestro = db.query(Maestro).filter(Maestro.id_persona == persona.id_persona).first()
+        if maestro:
+            persona_data["maestro_info"] = {
+                "id_maestro": str(maestro.id_maestro),
+                "telefono": maestro.telefono,
+                "direccion": maestro.direccion,
+                "created_at": maestro.created_at.isoformat() if maestro.created_at else None
+            }
+
+        # Verificar si es alumno y agregar información de alumno
+        alumno = db.query(Alumno).filter(Alumno.id_persona == persona.id_persona).first()
+        if alumno:
+            # Buscar el maestro asignado a través de la tabla tarjetas
+            tarjeta = db.query(Tarjeta).filter(Tarjeta.id_alumno == alumno.id_alumno).first()
+            
+            maestro_asignado = None
+            if tarjeta and tarjeta.id_maestro_asignado:
+                maestro_rel = db.query(Maestro).filter(Maestro.id_maestro == tarjeta.id_maestro_asignado).first()
+                if maestro_rel:
+                    persona_maestro = db.query(Persona).filter(Persona.id_persona == maestro_rel.id_persona).first()
+                    if persona_maestro:
+                        maestro_asignado = {
+                            "id_maestro": str(maestro_rel.id_maestro),
+                            "id_persona": str(persona_maestro.id_persona),
+                            "nombre": persona_maestro.nombre,
+                            "apellido": persona_maestro.apellido,
+                            "email": persona_maestro.email
+                        }
+            
+            persona_data["alumno_info"] = {
+                "id_alumno": str(alumno.id_alumno),
+                "dias": alumno.dias,
+                "franja_horaria": alumno.franja_horaria,
+                "motivo_oracion": alumno.motivo_oracion,
+                "id_estado_actual": alumno.id_estado_actual,
+                "maestro_asignado": maestro_asignado,
+                "created_at": alumno.created_at.isoformat() if alumno.created_at else None
+            }
+
+        result.append(persona_data)
 
     return {
         "personas": result,

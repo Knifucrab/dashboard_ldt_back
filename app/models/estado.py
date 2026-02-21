@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 from app.database.base import Base
 
@@ -9,4 +10,5 @@ class Estado(Base):
     nombre = Column(String, nullable=False, unique=True)
     orden = Column(Integer, nullable=False, default=0)
     activo = Column(Boolean, nullable=False, default=True)
+    id_bolsa = Column(UUID(as_uuid=True), ForeignKey("bolsas.id_bolsa", ondelete="CASCADE"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

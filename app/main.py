@@ -5,6 +5,7 @@ from app.routes.auth import router as auth_router
 from app.routes.alumnos import router as alumnos_router
 from app.routes.maestros import router as maestros_router
 from app.routes.personas import router as personas_router
+from app.routes.bolsas import router as bolsas_router
 from app.database import engine
 from sqlalchemy import text
 from contextlib import asynccontextmanager
@@ -48,6 +49,7 @@ app.include_router(auth_router)
 app.include_router(alumnos_router)
 app.include_router(maestros_router)
 app.include_router(personas_router)
+app.include_router(bolsas_router)
 
 
 @app.get("/help")

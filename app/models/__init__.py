@@ -3,6 +3,7 @@
 
 from app.models.role import Role
 from app.models.profile import Profile
+from app.models.bolsa import Bolsa
 from app.models.estado import Estado
 from app.models.persona import Persona
 from app.models.person_role import PersonRole
@@ -15,6 +16,7 @@ from app.models.historial_estado import HistorialEstado
 __all__ = [
     "Role",
     "Profile",
+    "Bolsa",
     "Estado",
     "Persona",
     "PersonRole",
