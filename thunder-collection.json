@@ -84,6 +84,24 @@
       ]
     },
     {
+      "_id": "tc-bolsa-alumnos",
+      "name": "Get alumnos por bolsa (GET /bolsas/{id}/alumnos)",
+      "method": "GET",
+      "url": "http://127.0.0.1:8000/bolsas/{{bolsaId}}/alumnos",
+      "header": [
+        { "key": "Authorization", "value": "Bearer {{token}}" }
+      ]
+    },
+    {
+      "_id": "tc-bolsa-alumnos-estado",
+      "name": "Get alumnos por bolsa filtrado por estado (GET /bolsas/{id}/alumnos?id_estado=x)",
+      "method": "GET",
+      "url": "http://127.0.0.1:8000/bolsas/{{bolsaId}}/alumnos?id_estado={{estadoId}}",
+      "header": [
+        { "key": "Authorization", "value": "Bearer {{token}}" }
+      ]
+    },
+    {
       "_id": "tc-alumno-estados",
       "name": "Get estados disponibles de un alumno (GET /alumnos/{id}/estados)",
       "method": "GET",
@@ -102,7 +120,9 @@
         { "key": "password", "value": "Password123!" },
         { "key": "token", "value": "" },
         { "key": "maestroId", "value": "PONER_ID_PERSONA_DEL_MAESTRO_AQUI" },
-        { "key": "alumnoId", "value": "PONER_ID_ALUMNO_AQUI" }
+        { "key": "alumnoId", "value": "PONER_ID_ALUMNO_AQUI" },
+        { "key": "bolsaId", "value": "PONER_ID_BOLSA_AQUI" },
+        { "key": "estadoId", "value": "1" }
       ]
     }
   ]

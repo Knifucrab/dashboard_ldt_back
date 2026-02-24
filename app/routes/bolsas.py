@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from uuid import UUID
+from typing import Optional
 
 from app.dependencies.db import get_db
 from app.dependencies.auth import get_current_user_id
@@ -10,6 +11,9 @@ from app.models.estado import Estado
 from app.models.historial_estado import HistorialEstado
 from app.models.persona import Persona
 from app.models.profile import Profile
+from app.models.alumno import Alumno
+from app.models.tarjeta import Tarjeta
+from app.models.maestro import Maestro
 from app.schemas.bolsa import BolsaCreate, BolsaResponse, BolsaWithEstados, BolsaUpdate, EstadoResponse
 
 router = APIRouter(prefix="/bolsas", tags=["Bolsas"])
@@ -407,3 +411,105 @@ def get_bolsas(
         })
     
     return result
+
+
+@router.get("/{id_bolsa}/alumnos")
+def get_alumnos_por_bolsa(
+    id_bolsa: UUID,
+    auth_user_id: str = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+    id_estado: Optional[int] = Query(None, description="Filtrar por un estado específico de la bolsa")
+):
+    """
+    Devuelve todos los alumnos agrupados por estado para una bolsa dada.
+
+    - id_bolsa: UUID de la bolsa
+    - id_estado (opcional): filtra y devuelve solo el estado indicado
+
+    Flujo: Bolsa → estados de la bolsa → alumnos cuyo id_estado_actual coincide.
+    Incluye datos del maestro asignado desde la tabla tarjetas.
+    """
+
+    # 1. Verificar usuario autenticado
+    persona_autenticada = db.query(Persona).filter(Persona.auth_user_id == auth_user_id).first()
+    if not persona_autenticada:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Persona no encontrada"
+        )
+
+    # 2. Verificar que la bolsa existe
+    bolsa = db.query(Bolsa).filter(Bolsa.id_bolsa == id_bolsa).first()
+    if not bolsa:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Bolsa con id {id_bolsa} no encontrada"
+        )
+
+    # 3. Obtener estados de la bolsa, ordenados por campo orden
+    query_estados = db.query(Estado).filter(Estado.id_bolsa == id_bolsa)
+
+    if id_estado is not None:
+        # Validar que ese estado pertenece a la bolsa
+        estado_filtro = query_estados.filter(Estado.id_estado == id_estado).first()
+        if not estado_filtro:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"El estado {id_estado} no pertenece a la bolsa {id_bolsa}"
+            )
+        estados = [estado_filtro]
+    else:
+        estados = query_estados.order_by(Estado.orden).all()
+
+    # 4. Para cada estado, buscar alumnos cuyo id_estado_actual coincida
+    estados_con_alumnos = []
+    for estado in estados:
+        alumnos = db.query(Alumno).filter(Alumno.id_estado_actual == estado.id_estado).all()
+
+        alumnos_data = []
+        for alumno in alumnos:
+            persona_alumno = db.query(Persona).filter(Persona.id_persona == alumno.id_persona).first()
+            if not persona_alumno:
+                continue
+
+            # Obtener tarjeta y maestro asignado
+            tarjeta = db.query(Tarjeta).filter(Tarjeta.id_alumno == alumno.id_alumno).first()
+            maestro_data = None
+            if tarjeta and tarjeta.id_maestro_asignado:
+                maestro = db.query(Maestro).filter(Maestro.id_maestro == tarjeta.id_maestro_asignado).first()
+                if maestro:
+                    persona_maestro = db.query(Persona).filter(Persona.id_persona == maestro.id_persona).first()
+                    maestro_data = {
+                        "id_maestro": str(maestro.id_maestro),
+                        "nombre": persona_maestro.nombre if persona_maestro else None,
+                        "apellido": persona_maestro.apellido if persona_maestro else None,
+                        "telefono": maestro.telefono,
+                        "direccion": maestro.direccion
+                    }
+
+            alumnos_data.append({
+                "id_alumno": str(alumno.id_alumno),
+                "nombre": persona_alumno.nombre,
+                "apellido": persona_alumno.apellido,
+                "email": persona_alumno.email,
+                "foto_url": persona_alumno.foto_url,
+                "dias": alumno.dias,
+                "franja_horaria": alumno.franja_horaria,
+                "motivo_oracion": alumno.motivo_oracion,
+                "maestro_asignado": maestro_data
+            })
+
+        estados_con_alumnos.append({
+            "id_estado": estado.id_estado,
+            "nombre": estado.nombre,
+            "orden": estado.orden,
+            "total_alumnos": len(alumnos_data),
+            "alumnos": alumnos_data
+        })
+
+    return {
+        "id_bolsa": str(bolsa.id_bolsa),
+        "nombre": bolsa.nombre,
+        "descripcion": bolsa.descripcion,
+        "estados": estados_con_alumnos
+    }
