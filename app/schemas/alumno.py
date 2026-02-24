@@ -15,6 +15,9 @@ class AlumnoCreate(BaseModel):
     franja_horaria: Optional[str] = Field(None, max_length=100)
     motivo_oracion: Optional[str] = Field(None, max_length=300)
     
+    # Estado actual (obligatorio)
+    id_estado_actual: int = Field(..., ge=1, description="ID del estado actual del alumno")
+    
     # Maestro asignado (solo para admin, maestros se auto-asignan)
     id_maestro: Optional[str] = Field(None, description="ID del maestro a asignar (solo para administradores)")
     
@@ -28,6 +31,7 @@ class AlumnoCreate(BaseModel):
                 "dias": {"lunes": True, "miercoles": True, "viernes": True},
                 "franja_horaria": "mañana",
                 "motivo_oracion": "Por la salud de mi familia",
+                "id_estado_actual": 1,
                 "id_maestro": "uuid-del-maestro"
             }
         }

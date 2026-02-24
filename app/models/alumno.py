@@ -14,7 +14,7 @@ class Alumno(Base):
     dias = Column(JSONB)  # Corregido: columna real en BD
     franja_horaria = Column(String)
     motivo_oracion = Column(String(300))
-    id_estado_actual = Column(Integer)  # Columna adicional en BD
+    id_estado_actual = Column(Integer, nullable=False)  # Columna adicional en BD - OBLIGATORIO
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     

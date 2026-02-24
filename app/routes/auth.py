@@ -3,8 +3,8 @@ from sqlalchemy.orm import Session
 
 from app.dependencies.db import get_db
 from app.dependencies.auth import get_current_user_id
-from app.services.auth_service import login_user, register_user, register_alumno
-from app.schemas.auth import LoginRequest, LoginResponse, RegisterRequest, RegisterAlumnoRequest
+from app.services.auth_service import login_user, register_user
+from app.schemas.auth import LoginRequest, LoginResponse, RegisterRequest
 from app.models.persona import Persona
 from app.models.person_role import PersonRole
 
@@ -76,23 +76,4 @@ def register(
         id_perfil=data.id_perfil
     )
 
-@router.post("/register/alumno")
-def register_alumno_endpoint(
-    data: RegisterAlumnoRequest,
-    db: Session = Depends(get_db)
-):
-    """
-    Registra un nuevo alumno.
-    Crea automáticamente registros en 'personas', 'alumnos' y 'tarjetas'.
-    El alumno queda asignado al maestro especificado.
-    """
-    return register_alumno(
-        db=db,
-        nombre=data.nombre,
-        apellido=data.apellido,
-        maestro_asignado=data.maestro_asignado,
-        foto_url=data.foto_url,
-        dias=data.dias,
-        franja_horaria=data.franja_horaria,
-        motivo_oracion=data.motivo_oracion
-    )
+

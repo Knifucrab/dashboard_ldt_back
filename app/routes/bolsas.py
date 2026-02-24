@@ -10,7 +10,7 @@ from app.models.estado import Estado
 from app.models.historial_estado import HistorialEstado
 from app.models.persona import Persona
 from app.models.profile import Profile
-from app.schemas.bolsa import BolsaCreate, BolsaResponse, BolsaWithEstados, BolsaUpdate
+from app.schemas.bolsa import BolsaCreate, BolsaResponse, BolsaWithEstados, BolsaUpdate, EstadoResponse
 
 router = APIRouter(prefix="/bolsas", tags=["Bolsas"])
 
@@ -387,12 +387,10 @@ def get_bolsas(
     # Enriquecer con información de estados
     result = []
     for bolsa in bolsas:
-        total_estados = db.query(Estado).filter(Estado.id_bolsa == bolsa.id_bolsa).count()
-        estados_activos = db.query(Estado).filter(
-            Estado.id_bolsa == bolsa.id_bolsa,
-            Estado.activo == True
-        ).count()
-        
+        estados = db.query(Estado).filter(
+            Estado.id_bolsa == bolsa.id_bolsa
+        ).order_by(Estado.orden).all()
+
         result.append({
             "id_bolsa": bolsa.id_bolsa,
             "nombre": bolsa.nombre,
@@ -400,8 +398,12 @@ def get_bolsas(
             "estados_orden": bolsa.estados_orden,
             "activo": bolsa.activo,
             "created_at": bolsa.created_at,
-            "total_estados": total_estados,
-            "estados_activos": estados_activos
+            "total_estados": len(estados),
+            "estados_activos": sum(1 for e in estados if e.activo),
+            "estados": [
+                {"id_estado": e.id_estado, "nombre": e.nombre, "orden": e.orden, "activo": e.activo}
+                for e in estados
+            ]
         })
     
     return result

@@ -14,17 +14,6 @@
       }
     },
     {
-      "_id": "tc-register-alumno",
-      "name": "Register Alumno (POST /auth/register/alumno)",
-      "method": "POST",
-      "url": "http://127.0.0.1:8000/auth/register/alumno",
-      "header": [{ "key": "Content-Type", "value": "application/json" }],
-      "body": {
-        "type": "json",
-        "raw": "{\n  \"nombre\": \"Maria\",\n  \"apellido\": \"Alumna\",\n  \"maestro_asignado\": \"PONER_ID_PERSONA_DEL_MAESTRO_AQUI\",\n  \"foto_url\": null,\n  \"dias\": {\"lunes\": true, \"miercoles\": true},\n  \"franja_horaria\": \"18:00-20:00\",\n  \"motivo_oracion\": \"Crecimiento espiritual\"\n}"
-      }
-    },
-    {
       "_id": "tc-login",
       "name": "Login (POST /auth/login)",
       "method": "POST",
@@ -61,6 +50,47 @@
       "header": [
         { "key": "Authorization", "value": "Bearer {{token}}" }
       ]
+    },
+    {
+      "_id": "tc-crear-alumno",
+      "name": "Crear alumno (POST /alumnos)",
+      "method": "POST",
+      "url": "http://127.0.0.1:8000/alumnos",
+      "header": [
+        { "key": "Authorization", "value": "Bearer {{token}}" },
+        { "key": "Content-Type", "value": "application/json" }
+      ],
+      "body": {
+        "type": "json",
+        "raw": "{\n  \"nombre\": \"Maria\",\n  \"apellido\": \"Alumna\",\n  \"id_estado_actual\": 1,\n  \"id_maestro\": \"PONER_ID_MAESTRO_AQUI\",\n  \"dias\": {\"lunes\": true, \"miercoles\": true},\n  \"franja_horaria\": \"18:00-20:00\",\n  \"motivo_oracion\": \"Crecimiento espiritual\"\n}"
+      }
+    },
+    {
+      "_id": "tc-bolsas",
+      "name": "Get bolsas con estados (GET /bolsas)",
+      "method": "GET",
+      "url": "http://127.0.0.1:8000/bolsas",
+      "header": [
+        { "key": "Authorization", "value": "Bearer {{token}}" }
+      ]
+    },
+    {
+      "_id": "tc-bolsas-activas",
+      "name": "Get bolsas activas (GET /bolsas?activo=true)",
+      "method": "GET",
+      "url": "http://127.0.0.1:8000/bolsas?activo=true",
+      "header": [
+        { "key": "Authorization", "value": "Bearer {{token}}" }
+      ]
+    },
+    {
+      "_id": "tc-alumno-estados",
+      "name": "Get estados disponibles de un alumno (GET /alumnos/{id}/estados)",
+      "method": "GET",
+      "url": "http://127.0.0.1:8000/alumnos/{{alumnoId}}/estados",
+      "header": [
+        { "key": "Authorization", "value": "Bearer {{token}}" }
+      ]
     }
   ],
   "environments": [
@@ -71,7 +101,8 @@
         { "key": "email", "value": "maestro@example.com" },
         { "key": "password", "value": "Password123!" },
         { "key": "token", "value": "" },
-        { "key": "maestroId", "value": "PONER_ID_PERSONA_DEL_MAESTRO_AQUI" }
+        { "key": "maestroId", "value": "PONER_ID_PERSONA_DEL_MAESTRO_AQUI" },
+        { "key": "alumnoId", "value": "PONER_ID_ALUMNO_AQUI" }
       ]
     }
   ]

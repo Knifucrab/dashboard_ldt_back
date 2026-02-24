@@ -3,6 +3,17 @@ from datetime import datetime
 from uuid import UUID
 
 
+class EstadoResponse(BaseModel):
+    """Esquema de un estado dentro de una bolsa"""
+    id_estado: int
+    nombre: str
+    orden: int
+    activo: bool
+
+    class Config:
+        from_attributes = True
+
+
 class BolsaBase(BaseModel):
     """Esquema base de Bolsa con campos comunes"""
     nombre: str
@@ -34,9 +45,10 @@ class BolsaResponse(BolsaBase):
 
 
 class BolsaWithEstados(BolsaResponse):
-    """Esquema de Bolsa con información de estados asociados"""
+    """Esquema de Bolsa con lista completa de estados asociados"""
     total_estados: int
     estados_activos: int
+    estados: list[EstadoResponse] = []
 
     class Config:
         from_attributes = True

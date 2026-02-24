@@ -13,6 +13,7 @@ from app.models.alumno import Alumno
 from app.models.tarjeta import Tarjeta
 from app.models.estado import Estado
 from app.models.historial_estado import HistorialEstado
+from app.models.bolsa import Bolsa
 from app.schemas.alumno import AlumnoCreate, AlumnoUpdate, CambiarEstadoAlumno
 
 router = APIRouter(prefix="/alumnos", tags=["Alumnos"])
@@ -220,7 +221,21 @@ def create_alumno(
     
     es_admin = perfil.nivel_acceso == 1
     
-    # 3. Determinar el maestro a asignar según el tipo de usuario
+    # 3. Validar que el estado existe en la tabla de estados
+    estado = db.query(Estado).filter(Estado.id_estado == alumno_data.id_estado_actual).first()
+    if not estado:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Estado con id {alumno_data.id_estado_actual} no encontrado"
+        )
+    
+    if not estado.activo:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"El estado con id {alumno_data.id_estado_actual} no está activo"
+        )
+    
+    # 4. Determinar el maestro a asignar según el tipo de usuario
     id_maestro_asignado = None
     
     if es_admin:
@@ -280,10 +295,10 @@ def create_alumno(
                 )
             id_maestro_asignado = maestro.id_maestro
     
-    # 4. Crear un nuevo auth_user_id para el alumno
+    # 5. Crear un nuevo auth_user_id para el alumno
     nuevo_auth_user_id = uuid.uuid4()
     
-    # 5. Crear la persona del alumno
+    # 6. Crear la persona del alumno
     nueva_persona = Persona(
         auth_user_id=nuevo_auth_user_id,
         nombre=alumno_data.nombre,
@@ -295,17 +310,18 @@ def create_alumno(
     db.add(nueva_persona)
     db.flush()  # Para obtener el id_persona generado
     
-    # 6. Crear el registro de alumno
+    # 7. Crear el registro de alumno
     nuevo_alumno = Alumno(
         id_persona=nueva_persona.id_persona,
         dias=alumno_data.dias,
         franja_horaria=alumno_data.franja_horaria,
-        motivo_oracion=alumno_data.motivo_oracion
+        motivo_oracion=alumno_data.motivo_oracion,
+        id_estado_actual=alumno_data.id_estado_actual
     )
     db.add(nuevo_alumno)
     db.flush()  # Para obtener el id_alumno generado
     
-    # 7. Crear la tarjeta de asignación
+    # 8. Crear la tarjeta de asignación
     nueva_tarjeta = Tarjeta(
         id_alumno=nuevo_alumno.id_alumno,
         id_maestro_asignado=id_maestro_asignado,
@@ -313,7 +329,7 @@ def create_alumno(
     )
     db.add(nueva_tarjeta)
     
-    # 8. Guardar todo en la base de datos
+    # 9. Guardar todo en la base de datos
     try:
         db.commit()
         db.refresh(nueva_persona)
@@ -326,13 +342,13 @@ def create_alumno(
             detail=f"Error al crear el alumno: {str(e)}"
         )
     
-    # 9. Obtener datos del maestro asignado para la respuesta
+    # 10. Obtener datos del maestro asignado para la respuesta
     maestro_asignado = db.query(Maestro).filter(Maestro.id_maestro == id_maestro_asignado).first()
     persona_maestro = None
     if maestro_asignado:
         persona_maestro = db.query(Persona).filter(Persona.id_persona == maestro_asignado.id_persona).first()
     
-    # 10. Construir y retornar respuesta
+    # 11. Construir y retornar respuesta
     return {
         "message": "Alumno creado exitosamente",
         "alumno": {
@@ -864,4 +880,106 @@ def cambiar_estado_alumno(
             "comentario": nuevo_historial.comentario,
             "cambiado_por": str(persona_autenticada.id_persona)
         }
+    }
+
+
+@router.get("/{id_alumno}/estados")
+def get_estados_disponibles_alumno(
+    id_alumno: str,
+    auth_user_id: str = Depends(get_current_user_id),
+    db: Session = Depends(get_db)
+):
+    """
+    Devuelve los estados disponibles para un alumno, basado en la bolsa
+    a la que pertenece su estado actual.
+
+    Flujo: Alumno → id_estado_actual → Estado → id_bolsa → todos los estados de esa bolsa.
+
+    Si el estado actual del alumno no pertenece a ninguna bolsa,
+    se devuelve únicamente el estado actual.
+    """
+
+    # 1. Verificar usuario autenticado
+    persona_autenticada = db.query(Persona).filter(Persona.auth_user_id == auth_user_id).first()
+    if not persona_autenticada:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Persona no encontrada"
+        )
+
+    # 2. Obtener el alumno
+    try:
+        alumno_uuid = uuid.UUID(id_alumno)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="id_alumno no es un UUID válido"
+        )
+
+    alumno = db.query(Alumno).filter(Alumno.id_alumno == alumno_uuid).first()
+    if not alumno:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Alumno no encontrado"
+        )
+
+    if alumno.id_estado_actual is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El alumno no tiene un estado actual asignado"
+        )
+
+    # 3. Obtener el estado actual del alumno
+    estado_actual = db.query(Estado).filter(Estado.id_estado == alumno.id_estado_actual).first()
+    if not estado_actual:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="El estado actual del alumno no existe en la tabla de estados"
+        )
+
+    # 4. Si el estado pertenece a una bolsa, devolver todos los estados de esa bolsa
+    if estado_actual.id_bolsa:
+        bolsa = db.query(Bolsa).filter(Bolsa.id_bolsa == estado_actual.id_bolsa).first()
+
+        estados = (
+            db.query(Estado)
+            .filter(Estado.id_bolsa == estado_actual.id_bolsa, Estado.activo == True)
+            .order_by(Estado.orden)
+            .all()
+        )
+
+        return {
+            "id_alumno": str(alumno.id_alumno),
+            "id_estado_actual": estado_actual.id_estado,
+            "nombre_estado_actual": estado_actual.nombre,
+            "bolsa": {
+                "id_bolsa": str(bolsa.id_bolsa),
+                "nombre": bolsa.nombre,
+                "descripcion": bolsa.descripcion
+            } if bolsa else None,
+            "estados_disponibles": [
+                {
+                    "id_estado": e.id_estado,
+                    "nombre": e.nombre,
+                    "orden": e.orden,
+                    "es_estado_actual": e.id_estado == estado_actual.id_estado
+                }
+                for e in estados
+            ]
+        }
+
+    # 5. Si el estado no pertenece a ninguna bolsa, devolver solo el estado actual
+    return {
+        "id_alumno": str(alumno.id_alumno),
+        "id_estado_actual": estado_actual.id_estado,
+        "nombre_estado_actual": estado_actual.nombre,
+        "bolsa": None,
+        "estados_disponibles": [
+            {
+                "id_estado": estado_actual.id_estado,
+                "nombre": estado_actual.nombre,
+                "orden": estado_actual.orden,
+                "es_estado_actual": True
+            }
+        ]
     }
