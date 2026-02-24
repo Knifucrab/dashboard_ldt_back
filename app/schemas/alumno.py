@@ -58,3 +58,17 @@ class AlumnoUpdate(BaseModel):
                 "motivo_oracion": "Por la salud de mi familia"
             }
         }
+
+
+class CambiarEstadoAlumno(BaseModel):
+    """Schema para cambiar el estado de un alumno"""
+    id_estado: int = Field(..., description="ID del nuevo estado")
+    comentario: Optional[str] = Field(None, max_length=500, description="Comentario opcional sobre el cambio")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "id_estado": 3,
+                "comentario": "El alumno completó el nivel básico"
+            }
+        }

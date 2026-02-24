@@ -11,7 +11,9 @@ from app.models.profile import Profile
 from app.models.maestro import Maestro
 from app.models.alumno import Alumno
 from app.models.tarjeta import Tarjeta
-from app.schemas.alumno import AlumnoCreate, AlumnoUpdate
+from app.models.estado import Estado
+from app.models.historial_estado import HistorialEstado
+from app.schemas.alumno import AlumnoCreate, AlumnoUpdate, CambiarEstadoAlumno
 
 router = APIRouter(prefix="/alumnos", tags=["Alumnos"])
 
@@ -718,3 +720,148 @@ def delete_alumno(
         )
 
     return {"message": "Alumno eliminado correctamente", "id_alumno": str(id_alumno)}
+
+
+@router.patch("/{id_alumno}/estado")
+def cambiar_estado_alumno(
+    id_alumno: str,
+    estado_data: CambiarEstadoAlumno,
+    auth_user_id: str = Depends(get_current_user_id),
+    db: Session = Depends(get_db)
+):
+    """
+    Cambia el estado de un alumno y registra el cambio en el historial.
+    
+    Permisos:
+    - Administrador (nivel_acceso=1): Puede modificar cualquier alumno
+    - Moderador/Maestro: Solo puede modificar alumnos asociados a él
+    
+    Args:
+        id_alumno: UUID del alumno
+        estado_data: Datos del nuevo estado y comentario opcional
+        
+    Returns:
+        Confirmación del cambio con datos del historial creado
+    """
+    
+    # 1. Validar UUID
+    try:
+        alumno_uuid = uuid.UUID(id_alumno)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="ID de alumno inválido"
+        )
+    
+    # 2. Obtener persona autenticada
+    persona_autenticada = db.query(Persona).filter(Persona.auth_user_id == auth_user_id).first()
+    if not persona_autenticada:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Persona no encontrada"
+        )
+    
+    # 3. Obtener perfil
+    perfil = db.query(Profile).filter(Profile.id_perfil == persona_autenticada.id_perfil).first()
+    if not perfil:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Perfil no encontrado"
+        )
+    
+    es_admin = perfil.nivel_acceso == 1
+    es_moderador = perfil.nivel_acceso == 2
+    
+    # 4. Verificar que el usuario sea admin o moderador
+    if not (es_admin or es_moderador):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permisos para cambiar estados de alumnos"
+        )
+    
+    # 5. Verificar que el alumno existe
+    alumno = db.query(Alumno).filter(Alumno.id_alumno == alumno_uuid).first()
+    if not alumno:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Alumno con id {id_alumno} no encontrado"
+        )
+    
+    # 6. Si es moderador/maestro, verificar que el alumno esté asociado a él
+    if not es_admin:
+        # Obtener el maestro asociado al usuario autenticado
+        maestro = db.query(Maestro).filter(Maestro.id_persona == persona_autenticada.id_persona).first()
+        if not maestro:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Solo maestros pueden modificar alumnos"
+            )
+        
+        # Verificar que el alumno esté asociado al maestro
+        tarjeta = db.query(Tarjeta).filter(
+            Tarjeta.id_alumno == alumno.id_alumno,
+            Tarjeta.id_maestro_asignado == maestro.id_maestro
+        ).first()
+        
+        if not tarjeta:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No tienes permiso para modificar este alumno"
+            )
+    
+    # 7. Verificar que el estado existe
+    estado = db.query(Estado).filter(Estado.id_estado == estado_data.id_estado).first()
+    if not estado:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Estado con id {estado_data.id_estado} no encontrado"
+        )
+    
+    # 8. Verificar que el estado esté activo
+    if not estado.activo:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"El estado '{estado.nombre}' no está activo"
+        )
+    
+    # 9. Guardar el estado anterior
+    estado_anterior = alumno.id_estado_actual
+    
+    # 10. Actualizar el estado del alumno
+    alumno.id_estado_actual = estado_data.id_estado
+    
+    # 11. Crear registro en historial
+    nuevo_historial = HistorialEstado(
+        id_alumno=alumno.id_alumno,
+        id_estado=estado_data.id_estado,
+        comentario=estado_data.comentario,
+        cambiado_por=persona_autenticada.id_persona
+    )
+    
+    db.add(nuevo_historial)
+    
+    try:
+        db.commit()
+        db.refresh(alumno)
+        db.refresh(nuevo_historial)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al cambiar el estado: {str(e)}"
+        )
+    
+    # 12. Preparar respuesta
+    return {
+        "message": "Estado del alumno actualizado exitosamente",
+        "id_alumno": str(alumno.id_alumno),
+        "estado_anterior": estado_anterior,
+        "estado_nuevo": estado_data.id_estado,
+        "estado_nombre": estado.nombre,
+        "historial": {
+            "id_historial": str(nuevo_historial.id_historial),
+            "fecha_cambio": nuevo_historial.fecha_cambio.isoformat(),
+            "comentario": nuevo_historial.comentario,
+            "cambiado_por": str(persona_autenticada.id_persona)
+        }
+    }
