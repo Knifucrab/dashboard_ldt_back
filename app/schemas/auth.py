@@ -22,13 +22,19 @@ class RegisterMaestroRequest(BaseModel):
     telefono: str | None = None
     direccion: str | None = None
 
+class PerfilResponse(BaseModel):
+    id_perfil: int
+    nivel_acceso: int
+    descripcion: str
+
 class UserResponse(BaseModel):
     id: str
     email: EmailStr
     name: str
     role: str | None
-    avatar: str | None    
-    
+    avatar: str | None
+    perfil: PerfilResponse | None = None
+
 class LoginResponse(BaseModel):
     user: UserResponse
     token: str

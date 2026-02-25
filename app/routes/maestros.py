@@ -1,13 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Form, UploadFile, File
 from sqlalchemy.orm import Session
+from typing import Optional
 
 from app.dependencies.db import get_db
 from app.dependencies.auth import get_current_user_id
 from app.models.maestro import Maestro
 from app.models.persona import Persona
-from app.schemas.auth import RegisterMaestroRequest
 from app.services.auth_service import register_maestro
-from app.schemas.auth import MaestroUpdate, ChangeProfileRequest
+from app.schemas.auth import ChangeProfileRequest
 from app.models.person_role import PersonRole
 from app.core.security import hash_password
 from app.models.role import Role
@@ -105,13 +105,20 @@ def get_maestro_by_id(
 
 @router.post("", status_code=201)
 def create_maestro(
-    data: RegisterMaestroRequest,
     auth_user_id: str = Depends(get_current_user_id),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    nombre: str = Form(...),
+    apellido: str = Form(...),
+    email: str = Form(...),
+    password: str = Form(...),
+    telefono: Optional[str] = Form(None),
+    direccion: Optional[str] = Form(None),
+    foto: Optional[UploadFile] = File(None)
 ):
     """
     Crea un nuevo maestro (persona + maestro + rol) usando la lógica de `register_maestro`.
     Requiere autenticación de administrador (nivel_acceso=1).
+    Acepta multipart/form-data. La foto se sube a Supabase Storage.
     """
 
     # Verificar que el usuario autenticado sea administrador
@@ -135,30 +142,43 @@ def create_maestro(
             detail="Solo los administradores pueden crear maestros"
         )
 
+    # Subir foto a Supabase Storage si se proporcionó
+    foto_url = None
+    if foto and foto.filename:
+        from app.integrations.storage import upload_foto
+        foto_url = upload_foto(foto, "maestros")
+
     return register_maestro(
         db=db,
-        nombre=data.nombre,
-        apellido=data.apellido,
-        email=data.email,
-        password=data.password,
-        foto_url=data.foto_url,
-        telefono=data.telefono,
-        direccion=data.direccion
+        nombre=nombre,
+        apellido=apellido,
+        email=email,
+        password=password,
+        foto_url=foto_url,
+        telefono=telefono,
+        direccion=direccion
     )
 
 
 @router.put("/{id_maestro}")
 def update_maestro(
     id_maestro: str,
-    data: MaestroUpdate,
     auth_user_id: str = Depends(get_current_user_id),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    nombre: Optional[str] = Form(None),
+    apellido: Optional[str] = Form(None),
+    email: Optional[str] = Form(None),
+    telefono: Optional[str] = Form(None),
+    direccion: Optional[str] = Form(None),
+    password: Optional[str] = Form(None),
+    foto: Optional[UploadFile] = File(None)
 ):
     """
     Actualiza datos de un maestro y su persona asociada.
     - Administradores (nivel_acceso=1) pueden actualizar cualquier maestro.
     - Pastores (rol=1) pueden actualizar cualquier maestro.
     - Maestros (rol=2) solo pueden actualizar su propio registro.
+    Acepta multipart/form-data. La foto se sube a Supabase Storage.
     """
 
     persona_autenticada = db.query(Persona).filter(Persona.auth_user_id == auth_user_id).first()
@@ -204,7 +224,26 @@ def update_maestro(
     if not persona:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Persona asociada no encontrada")
 
-    update_data = data.model_dump(exclude_unset=True)
+    update_data = {}
+
+    # Subir foto si se proporcionó
+    if foto and foto.filename:
+        from app.integrations.storage import upload_foto
+        update_data["foto_url"] = upload_foto(foto, "maestros")
+
+    # Agregar campos de texto solo si fueron enviados (no None)
+    if nombre is not None:
+        update_data["nombre"] = nombre
+    if apellido is not None:
+        update_data["apellido"] = apellido
+    if email is not None:
+        update_data["email"] = email
+    if telefono is not None:
+        update_data["telefono"] = telefono
+    if direccion is not None:
+        update_data["direccion"] = direccion
+    if password is not None:
+        update_data["password"] = password
 
     # actualizar persona
     if "nombre" in update_data:

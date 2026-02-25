@@ -7,6 +7,7 @@ from app.services.auth_service import login_user, register_user
 from app.schemas.auth import LoginRequest, LoginResponse, RegisterRequest
 from app.models.persona import Persona
 from app.models.person_role import PersonRole
+from app.models.profile import Profile
 
 router = APIRouter(
     prefix="/auth",
@@ -45,13 +46,20 @@ def obtener_usuario_actual(
     person_roles = db.query(PersonRole).filter(PersonRole.person_id == persona.id_persona).all()
     roles = [pr.id_rol for pr in person_roles]
 
+    # Obtener perfil completo
+    perfil = db.query(Profile).filter(Profile.id_perfil == persona.id_perfil).first()
+
     return {
         "id_persona": persona.id_persona,
         "nombre": persona.nombre,
         "apellido": persona.apellido,
         "rol": roles[0] if roles else None,
         "roles": roles,
-        "perfil": persona.id_perfil
+        "perfil": {
+            "id_perfil": perfil.id_perfil,
+            "nivel_acceso": perfil.nivel_acceso,
+            "descripcion": perfil.descripcion
+        } if perfil else None
     }
 
 @router.post("/logout", status_code=status.HTTP_200_OK)

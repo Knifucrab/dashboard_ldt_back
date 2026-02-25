@@ -1,7 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Form, UploadFile, File
 from sqlalchemy.orm import Session
 from typing import Optional
 import uuid
+import json as json_lib
+from types import SimpleNamespace
 
 from app.dependencies.db import get_db
 from app.dependencies.auth import get_current_user_id
@@ -14,7 +16,9 @@ from app.models.tarjeta import Tarjeta
 from app.models.estado import Estado
 from app.models.historial_estado import HistorialEstado
 from app.models.bolsa import Bolsa
-from app.schemas.alumno import AlumnoCreate, AlumnoUpdate, CambiarEstadoAlumno
+from app.models.observacion import Observacion
+from app.schemas.alumno import CambiarEstadoAlumno
+from app.schemas.observacion import ObservacionInput
 
 router = APIRouter(prefix="/alumnos", tags=["Alumnos"])
 
@@ -181,27 +185,53 @@ def get_alumnos(
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 def create_alumno(
-    alumno_data: AlumnoCreate,
     auth_user_id: str = Depends(get_current_user_id),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    nombre: str = Form(...),
+    apellido: str = Form(...),
+    id_estado_actual: int = Form(...),
+    email: Optional[str] = Form(None),
+    franja_horaria: Optional[str] = Form(None),
+    motivo_oracion: Optional[str] = Form(None),
+    id_maestro: Optional[str] = Form(None),
+    dias: Optional[str] = Form(None, description="JSON string con los días disponibles. Ej: '{\"lunes\":true}'"),
+    foto: Optional[UploadFile] = File(None)
 ):
     """
     Crea un nuevo alumno y lo asigna a un maestro.
-    
-    - Si nivel_acceso === 1 (Administrador):
-      * Puede crear alumno y asignarlo a cualquier maestro (usando id_maestro del body)
-      * Si no proporciona id_maestro, lanza error
-    
-    - Si role === 'pastor' (id_rol=1) y no es admin:
-      * Puede crear alumno y asignarlo a cualquier maestro (usando id_maestro del body)
-      * Si no proporciona id_maestro, lanza error
-    
-    - Si role === 'maestro' (id_rol=2) y no es admin:
-      * Crea el alumno y se auto-asigna (ignora id_maestro del body)
-    
-    Requiere: nombre, apellido (requeridos)
-    Opcionales: email, foto_url, dias, franja_horaria, motivo_oracion, id_maestro
+    Acepta multipart/form-data. La foto se sube a Supabase Storage.
+    El campo 'dias' debe enviarse como JSON string.
     """
+
+    # Parsear dias (JSON string -> dict)
+    dias_dict = None
+    if dias:
+        try:
+            dias_dict = json_lib.loads(dias)
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="El campo 'dias' debe ser un JSON válido. Ej: '{\"lunes\":true}'"
+            )
+
+    # Subir foto a Supabase Storage si se proporcionó
+    foto_url = None
+    if foto and foto.filename:
+        from app.integrations.storage import upload_foto
+        foto_url = upload_foto(foto, "alumnos")
+
+    # Construir objeto con la misma interfaz que AlumnoCreate para reutilizar el resto del código
+    alumno_data = SimpleNamespace(
+        nombre=nombre,
+        apellido=apellido,
+        email=email,
+        foto_url=foto_url,
+        dias=dias_dict,
+        franja_horaria=franja_horaria,
+        motivo_oracion=motivo_oracion,
+        id_estado_actual=id_estado_actual,
+        id_maestro=id_maestro
+    )
     
     # 1. Obtener la persona autenticada
     persona_autenticada = db.query(Persona).filter(Persona.auth_user_id == auth_user_id).first()
@@ -483,26 +513,20 @@ def get_alumno_by_id(
 @router.put("/{id_alumno}")
 def update_alumno(
     id_alumno: str,
-    alumno_data: AlumnoUpdate,
     auth_user_id: str = Depends(get_current_user_id),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    nombre: Optional[str] = Form(None),
+    apellido: Optional[str] = Form(None),
+    email: Optional[str] = Form(None),
+    franja_horaria: Optional[str] = Form(None),
+    motivo_oracion: Optional[str] = Form(None),
+    dias: Optional[str] = Form(None, description="JSON string con los días disponibles"),
+    foto: Optional[UploadFile] = File(None)
 ):
     """
     Actualiza la información de un alumno específico.
-    
-    - Si nivel_acceso === 1 (Administrador):
-      * Puede actualizar cualquier alumno del sistema (sin restricciones)
-    
-    - Si role === 'pastor' (id_rol=1) y no es admin:
-      * Puede actualizar cualquier alumno del sistema
-    
-    - Si role === 'maestro' (id_rol=2) y no es admin:
-      * Solo puede actualizar alumnos que le estén asignados
-    
-    Los campos que se pueden actualizar son:
-    - Datos personales: nombre, apellido, email, foto_url
-    - Datos de alumno: dias, franja_horaria, motivo_oracion
-    
+    Acepta multipart/form-data. La foto se sube a Supabase Storage.
+    El campo 'dias' debe enviarse como JSON string.
     Todos los campos son opcionales, solo se actualizan los que se envían.
     """
     
@@ -579,25 +603,32 @@ def update_alumno(
             detail="No se encontró información personal del alumno"
         )
     
-    # 7. Actualizar los campos de Persona (si se proporcionan)
-    update_data = alumno_data.model_dump(exclude_unset=True)
-    
-    if "nombre" in update_data:
-        persona_alumno.nombre = update_data["nombre"]
-    if "apellido" in update_data:
-        persona_alumno.apellido = update_data["apellido"]
-    if "email" in update_data:
-        persona_alumno.email = update_data["email"]
-    if "foto_url" in update_data:
-        persona_alumno.foto_url = update_data["foto_url"]
-    
-    # 8. Actualizar los campos de Alumno (si se proporcionan)
-    if "dias" in update_data:
-        alumno.dias = update_data["dias"]
-    if "franja_horaria" in update_data:
-        alumno.franja_horaria = update_data["franja_horaria"]
-    if "motivo_oracion" in update_data:
-        alumno.motivo_oracion = update_data["motivo_oracion"]
+    # 7. Actualizar los campos de Persona (si se proporcionaron)
+    if nombre is not None:
+        persona_alumno.nombre = nombre
+    if apellido is not None:
+        persona_alumno.apellido = apellido
+    if email is not None:
+        persona_alumno.email = email
+
+    # Subir foto a Supabase Storage si se proporcionó
+    if foto and foto.filename:
+        from app.integrations.storage import upload_foto
+        persona_alumno.foto_url = upload_foto(foto, "alumnos")
+
+    # 8. Actualizar los campos de Alumno (si se proporcionaron)
+    if dias is not None:
+        try:
+            alumno.dias = json_lib.loads(dias)
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="El campo 'dias' debe ser un JSON válido"
+            )
+    if franja_horaria is not None:
+        alumno.franja_horaria = franja_horaria
+    if motivo_oracion is not None:
+        alumno.motivo_oracion = motivo_oracion
     
     # 9. Guardar cambios en la base de datos
     try:
@@ -982,4 +1013,101 @@ def get_estados_disponibles_alumno(
                 "es_estado_actual": True
             }
         ]
+    }
+
+
+@router.post("/{id_alumno}/observaciones", status_code=status.HTTP_201_CREATED)
+def crear_observacion(
+    id_alumno: str,
+    body: ObservacionInput,
+    auth_user_id: str = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+):
+    """
+    Agrega una observación al historial de un alumno.
+    El autor queda registrado como la persona autenticada.
+
+    Permisos:
+    - Administrador (nivel_acceso=1): Puede agregar observaciones a cualquier alumno
+    - Moderador (nivel_acceso=2): Solo puede agregar observaciones a alumnos asociados a él
+    """
+    # 1. Verificar que el alumno existe
+    try:
+        alumno_uuid = uuid.UUID(id_alumno)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="ID de alumno inválido"
+        )
+
+    alumno = db.query(Alumno).filter(Alumno.id_alumno == alumno_uuid).first()
+    if not alumno:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Alumno no encontrado"
+        )
+
+    # 2. Obtener la persona autenticada (autor)
+    autor = db.query(Persona).filter(Persona.auth_user_id == auth_user_id).first()
+    if not autor:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Autor no encontrado"
+        )
+
+    # 3. Verificar permisos: admin o moderador
+    perfil = db.query(Profile).filter(Profile.id_perfil == autor.id_perfil).first()
+    if not perfil:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Perfil no encontrado"
+        )
+
+    es_admin = perfil.nivel_acceso == 1
+    es_moderador = perfil.nivel_acceso == 2
+
+    if not (es_admin or es_moderador):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permisos para agregar observaciones a alumnos"
+        )
+
+    # 4. Si es moderador, verificar que el alumno esté asociado a él
+    if not es_admin:
+        maestro = db.query(Maestro).filter(Maestro.id_persona == autor.id_persona).first()
+        if not maestro:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Solo maestros pueden agregar observaciones a alumnos"
+            )
+
+        tarjeta = db.query(Tarjeta).filter(
+            Tarjeta.id_alumno == alumno.id_alumno,
+            Tarjeta.id_maestro_asignado == maestro.id_maestro
+        ).first()
+
+        if not tarjeta:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No tienes permiso para agregar observaciones a este alumno"
+            )
+
+    # 5. Crear la observación
+    nueva_obs = Observacion(
+        id_alumno=alumno_uuid,
+        id_autor=autor.id_persona,
+        texto=body.texto,
+    )
+    db.add(nueva_obs)
+    db.commit()
+    db.refresh(nueva_obs)
+
+    return {
+        "id_observacion": str(nueva_obs.id_observacion),
+        "id_alumno": str(nueva_obs.id_alumno),
+        "id_autor": str(nueva_obs.id_autor),
+        "autor_nombre": autor.nombre,
+        "autor_apellido": autor.apellido,
+        "texto": nueva_obs.texto,
+        "created_at": nueva_obs.created_at,
     }

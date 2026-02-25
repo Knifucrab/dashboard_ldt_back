@@ -1,6 +1,18 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from datetime import datetime
 from uuid import UUID
+
+
+class ObservacionInput(BaseModel):
+    """Esquema de entrada para crear una observación (solo requiere el texto)"""
+    texto: str = Field(..., min_length=1, max_length=1000, description="Texto de la observación")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "texto": "El alumno mostró gran avance en la última semana."
+            }
+        }
 
 
 class ObservacionBase(BaseModel):
