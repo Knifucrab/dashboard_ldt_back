@@ -75,6 +75,7 @@ def login_user(db: Session, email: str, password: str):
             "role": str(roles[0]) if roles else None,
             "roles": [str(r) for r in roles],
             "avatar": persona.foto_url,
+            "id_perfil": perfil.id_perfil if perfil else None,
             "perfil": {
                 "id_perfil": perfil.id_perfil,
                 "nivel_acceso": perfil.nivel_acceso,

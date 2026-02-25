@@ -33,6 +33,7 @@ class UserResponse(BaseModel):
     name: str
     role: str | None
     avatar: str | None
+    id_perfil: int | None = None
     perfil: PerfilResponse | None = None
 
 class LoginResponse(BaseModel):

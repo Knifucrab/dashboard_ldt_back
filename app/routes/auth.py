@@ -55,6 +55,7 @@ def obtener_usuario_actual(
         "apellido": persona.apellido,
         "rol": roles[0] if roles else None,
         "roles": roles,
+        "id_perfil": perfil.id_perfil if perfil else None,
         "perfil": {
             "id_perfil": perfil.id_perfil,
             "nivel_acceso": perfil.nivel_acceso,

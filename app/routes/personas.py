@@ -36,19 +36,21 @@ def get_personas(
             detail="Persona no encontrada"
         )
 
-    person_roles = db.query(PersonRole).filter(PersonRole.person_id == persona_autenticada.id_persona).all()
-    roles = [pr.id_rol for pr in person_roles]
-    es_pastor = 1 in roles
-    es_maestro = persona_autenticada.id_perfil == 2
+    es_administrador = persona_autenticada.id_perfil == 1
+    es_moderador = persona_autenticada.id_perfil == 2
 
-    if not es_pastor and not es_maestro:
+    if not es_administrador and not es_moderador:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="No tienes permisos para ver personas"
         )
 
-    # --- Maestro: solo devuelve sus alumnos asignados ---
-    if es_maestro and not es_pastor:
+    # --- Administrador (id_perfil=1): devuelve todas las personas ---
+    if es_administrador:
+        personas = db.query(Persona).all()
+
+    # --- Moderador (id_perfil=2): devuelve sus alumnos + pastores + sí mismo ---
+    else:
         maestro = db.query(Maestro).filter(Maestro.id_persona == persona_autenticada.id_persona).first()
         if not maestro:
             raise HTTPException(
@@ -56,16 +58,20 @@ def get_personas(
                 detail="No se encontró el registro de maestro para este usuario"
             )
 
+        # IDs de personas de sus alumnos asignados
         tarjetas = db.query(Tarjeta).filter(Tarjeta.id_maestro_asignado == maestro.id_maestro).all()
         id_alumnos = [t.id_alumno for t in tarjetas]
-
         alumnos = db.query(Alumno).filter(Alumno.id_alumno.in_(id_alumnos)).all()
-        id_personas_alumnos = [a.id_persona for a in alumnos]
+        id_personas_alumnos = {a.id_persona for a in alumnos}
 
-        personas = db.query(Persona).filter(Persona.id_persona.in_(id_personas_alumnos)).all()
-    else:
-        # --- Pastor: devuelve todas las personas ---
-        personas = db.query(Persona).all()
+        # IDs de personas con rol=1 (pastor)
+        roles_pastor = db.query(PersonRole).filter(PersonRole.id_rol == 1).all()
+        id_personas_pastores = {pr.person_id for pr in roles_pastor}
+
+        # Unión: alumnos + pastores + sí mismo
+        ids_visibles = id_personas_alumnos | id_personas_pastores | {persona_autenticada.id_persona}
+
+        personas = db.query(Persona).filter(Persona.id_persona.in_(ids_visibles)).all()
 
     result = []
     for persona in personas:
