@@ -34,17 +34,42 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
-# Configuración de CORS
+# ---------------------------------------------------------------------------
+# CORS
+# ---------------------------------------------------------------------------
+# Orígenes permitidos.  Para producción reemplaza la lista con los dominios
+# de tu frontend real; evita "*" cuando allow_credentials=True.
+#
+# NOTAS:
+#  - "http://localhost:5173" → desarrollo local (Vite / dev server)
+#  - "https://dashboard-ldt-front.vercel.app" → producción
+#  - allow_credentials=True es necesario si el frontend envía cookies/tokens
+#    de sesión.  Si sólo usas cabeceras Authorization: Bearer, puedes
+#    establecerlo en False para mayor compatibilidad.
+# ---------------------------------------------------------------------------
+ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "https://dashboard-ldt-front.vercel.app",
+    # TODO (producción): añadir aquí cualquier otro dominio de frontend
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "https://dashboard-ldt-front.vercel.app",
-    ],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    # Listado explícito en lugar de "*" para evitar conflictos con
+    # allow_credentials=True en versiones antiguas de Starlette.
+    allow_headers=[
+        "Content-Type",
+        "Authorization",
+        "X-Requested-With",
+        "Accept",
+        "Origin",
+        "Access-Control-Request-Method",
+        "Access-Control-Request-Headers",
+    ],
 )
 
 app.include_router(estados_router)
