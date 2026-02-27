@@ -1111,3 +1111,222 @@ def crear_observacion(
         "texto": nueva_obs.texto,
         "created_at": nueva_obs.created_at,
     }
+
+
+# ---------------------------------------------------------------------------
+# GET /{id_alumno}/historial  – cambios de estado del alumno
+# ---------------------------------------------------------------------------
+
+@router.get("/{id_alumno}/historial")
+def get_historial_alumno(
+    id_alumno: str,
+    auth_user_id: str = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+):
+    """
+    Devuelve el historial de cambios de estado de un alumno, ordenado del más
+    reciente al más antiguo.
+
+    Cada entrada incluye:
+    - Nombre del estado nuevo
+    - Comentario (si existe)
+    - Quién realizó el cambio (nombre + apellido)
+    - Fecha del cambio
+    """
+    try:
+        alumno_uuid = uuid.UUID(id_alumno)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="ID de alumno inválido")
+
+    # Verificar alumno
+    alumno = db.query(Alumno).filter(Alumno.id_alumno == alumno_uuid).first()
+    if not alumno:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Alumno no encontrado")
+
+    # Verificar usuario autenticado
+    persona_autenticada = db.query(Persona).filter(Persona.auth_user_id == auth_user_id).first()
+    if not persona_autenticada:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Persona no encontrada")
+
+    # Obtener historial ordenado
+    registros = (
+        db.query(HistorialEstado)
+        .filter(HistorialEstado.id_alumno == alumno_uuid)
+        .order_by(HistorialEstado.fecha_cambio.desc())
+        .all()
+    )
+
+    resultados = []
+    for reg in registros:
+        estado_obj = db.query(Estado).filter(Estado.id_estado == reg.id_estado).first()
+        autor_obj = db.query(Persona).filter(Persona.id_persona == reg.cambiado_por).first() if reg.cambiado_por else None
+
+        resultados.append({
+            "id_historial": str(reg.id_historial),
+            "id_estado": reg.id_estado,
+            "estado_nombre": estado_obj.nombre if estado_obj else None,
+            "comentario": reg.comentario,
+            "fecha_cambio": reg.fecha_cambio.isoformat(),
+            "cambiado_por": {
+                "id_persona": str(autor_obj.id_persona) if autor_obj else None,
+                "nombre": autor_obj.nombre if autor_obj else None,
+                "apellido": autor_obj.apellido if autor_obj else None,
+            },
+        })
+
+    return {
+        "id_alumno": id_alumno,
+        "total": len(resultados),
+        "historial": resultados,
+    }
+
+
+# ---------------------------------------------------------------------------
+# GET /{id_alumno}/observaciones  – comentarios del alumno
+# ---------------------------------------------------------------------------
+
+@router.get("/{id_alumno}/observaciones")
+def get_observaciones_alumno(
+    id_alumno: str,
+    auth_user_id: str = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+):
+    """
+    Devuelve todas las observaciones/comentarios registrados para un alumno,
+    ordenados del más reciente al más antiguo.
+
+    Cada entrada incluye:
+    - Texto del comentario
+    - Quién lo escribió (nombre + apellido)
+    - Fecha de creación
+    """
+    try:
+        alumno_uuid = uuid.UUID(id_alumno)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="ID de alumno inválido")
+
+    alumno = db.query(Alumno).filter(Alumno.id_alumno == alumno_uuid).first()
+    if not alumno:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Alumno no encontrado")
+
+    persona_autenticada = db.query(Persona).filter(Persona.auth_user_id == auth_user_id).first()
+    if not persona_autenticada:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Persona no encontrada")
+
+    registros = (
+        db.query(Observacion)
+        .filter(Observacion.id_alumno == alumno_uuid)
+        .order_by(Observacion.created_at.desc())
+        .all()
+    )
+
+    resultados = []
+    for obs in registros:
+        autor_obj = db.query(Persona).filter(Persona.id_persona == obs.id_autor).first()
+        resultados.append({
+            "id_observacion": str(obs.id_observacion),
+            "texto": obs.texto,
+            "created_at": obs.created_at.isoformat(),
+            "autor": {
+                "id_persona": str(autor_obj.id_persona) if autor_obj else None,
+                "nombre": autor_obj.nombre if autor_obj else None,
+                "apellido": autor_obj.apellido if autor_obj else None,
+            },
+        })
+
+    return {
+        "id_alumno": id_alumno,
+        "total": len(resultados),
+        "observaciones": resultados,
+    }
+
+
+# ---------------------------------------------------------------------------
+# GET /{id_alumno}/actividad  – timeline unificado (estados + observaciones)
+# ---------------------------------------------------------------------------
+
+@router.get("/{id_alumno}/actividad")
+def get_actividad_alumno(
+    id_alumno: str,
+    auth_user_id: str = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+):
+    """
+    Devuelve un timeline unificado con todos los eventos del alumno mezclados
+    y ordenados cronológicamente (más reciente primero).
+
+    Cada evento tiene el campo 'tipo':
+    - "cambio_estado": se cambió el estado del alumno
+    - "observacion": un maestro o pastor dejó un comentario
+
+    Ideal para mostrar en la página una única línea de tiempo de actividad.
+    """
+    try:
+        alumno_uuid = uuid.UUID(id_alumno)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="ID de alumno inválido")
+
+    alumno = db.query(Alumno).filter(Alumno.id_alumno == alumno_uuid).first()
+    if not alumno:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Alumno no encontrado")
+
+    persona_autenticada = db.query(Persona).filter(Persona.auth_user_id == auth_user_id).first()
+    if not persona_autenticada:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Persona no encontrada")
+
+    eventos = []
+
+    # --- Cambios de estado ---
+    historial = (
+        db.query(HistorialEstado)
+        .filter(HistorialEstado.id_alumno == alumno_uuid)
+        .all()
+    )
+    for reg in historial:
+        estado_obj = db.query(Estado).filter(Estado.id_estado == reg.id_estado).first()
+        autor_obj = db.query(Persona).filter(Persona.id_persona == reg.cambiado_por).first() if reg.cambiado_por else None
+        eventos.append({
+            "tipo": "cambio_estado",
+            "fecha": reg.fecha_cambio,
+            "id_referencia": str(reg.id_historial),
+            "estado_nombre": estado_obj.nombre if estado_obj else None,
+            "comentario": reg.comentario,
+            "autor": {
+                "id_persona": str(autor_obj.id_persona) if autor_obj else None,
+                "nombre": autor_obj.nombre if autor_obj else None,
+                "apellido": autor_obj.apellido if autor_obj else None,
+            },
+        })
+
+    # --- Observaciones / comentarios ---
+    observaciones = (
+        db.query(Observacion)
+        .filter(Observacion.id_alumno == alumno_uuid)
+        .all()
+    )
+    for obs in observaciones:
+        autor_obj = db.query(Persona).filter(Persona.id_persona == obs.id_autor).first()
+        eventos.append({
+            "tipo": "observacion",
+            "fecha": obs.created_at,
+            "id_referencia": str(obs.id_observacion),
+            "texto": obs.texto,
+            "autor": {
+                "id_persona": str(autor_obj.id_persona) if autor_obj else None,
+                "nombre": autor_obj.nombre if autor_obj else None,
+                "apellido": autor_obj.apellido if autor_obj else None,
+            },
+        })
+
+    # Ordenar por fecha descendente
+    eventos.sort(key=lambda e: e["fecha"], reverse=True)
+
+    # Serializar fechas
+    for e in eventos:
+        e["fecha"] = e["fecha"].isoformat()
+
+    return {
+        "id_alumno": id_alumno,
+        "total": len(eventos),
+        "actividad": eventos,
+    }
