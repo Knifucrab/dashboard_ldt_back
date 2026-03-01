@@ -34,6 +34,7 @@ class UserResponse(BaseModel):
     role: str | None
     avatar: str | None
     id_perfil: int | None = None
+    id_maestro: str | None = None
     perfil: PerfilResponse | None = None
 
 class LoginResponse(BaseModel):

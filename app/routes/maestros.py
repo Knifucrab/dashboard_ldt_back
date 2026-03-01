@@ -1,6 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Form, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, status, Form, UploadFile, File, Query
 from sqlalchemy.orm import Session
+from sqlalchemy import distinct
 from typing import Optional
+from uuid import UUID
 
 from app.dependencies.db import get_db
 from app.dependencies.auth import get_current_user_id
@@ -12,6 +14,10 @@ from app.models.person_role import PersonRole
 from app.core.security import hash_password
 from app.models.role import Role
 from app.models.profile import Profile
+from app.models.bolsa import Bolsa
+from app.models.estado import Estado
+from app.models.alumno import Alumno
+from app.models.tarjeta import Tarjeta
 
 router = APIRouter(prefix="/maestros", tags=["Maestros"])
 
@@ -66,6 +72,106 @@ def get_maestros(
         })
 
     return {"maestros": result, "total": len(result)}
+
+
+@router.get("/{id_maestro}/bolsas")
+def get_bolsas_por_maestro(
+    id_maestro: str,
+    id_persona: Optional[str] = Query(None, description="Resolver maestro desde id_persona en lugar del id_maestro del path"),
+    auth_user_id: str = Depends(get_current_user_id),
+    db: Session = Depends(get_db)
+):
+    """
+    Devuelve las bolsas asociadas a un maestro.
+
+    - Si el usuario autenticado tiene id_perfil=1 (Admin): devuelve TODAS las bolsas del sistema.
+    - Si el usuario autenticado tiene id_perfil=2 (Maestro): devuelve solo las bolsas donde
+      el maestro tiene alumnos asignados (join Bolsa→Estado→Alumno→Tarjeta filtrando
+      por Tarjeta.id_maestro_asignado).
+
+    Soporta resolución de maestro por id_persona (query param opcional).
+    """
+
+    # 1. Verificar usuario autenticado
+    persona_autenticada = db.query(Persona).filter(Persona.auth_user_id == auth_user_id).first()
+    if not persona_autenticada:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Persona no encontrada")
+
+    perfil = db.query(Profile).filter(Profile.id_perfil == persona_autenticada.id_perfil).first()
+    if not perfil:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Perfil no encontrado")
+
+    # 2. Resolver el maestro: desde id_persona (query param) o desde id_maestro (path)
+    if id_persona:
+        try:
+            persona_uuid = UUID(id_persona)
+        except ValueError:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="id_persona inválido, debe ser un UUID")
+        maestro = db.query(Maestro).filter(Maestro.id_persona == persona_uuid).first()
+        if not maestro:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No se encontró un maestro asociado a la persona {id_persona}"
+            )
+    else:
+        try:
+            maestro_uuid = UUID(id_maestro)
+        except ValueError:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="id_maestro inválido, debe ser un UUID")
+        maestro = db.query(Maestro).filter(Maestro.id_maestro == maestro_uuid).first()
+        if not maestro:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Maestro con id {id_maestro} no encontrado"
+            )
+
+    # 3. Obtener bolsas según el perfil del usuario autenticado
+    if persona_autenticada.id_perfil == 1:
+        # Admin: todas las bolsas del sistema
+        bolsas = db.query(Bolsa).order_by(Bolsa.created_at).all()
+    else:
+        # Perfil 2 (Maestro): solo bolsas donde el maestro tiene alumnos asignados.
+        # Una sola consulta con JOIN: Bolsa → Estado → Alumno → Tarjeta
+        bolsa_ids_rows = (
+            db.query(Bolsa.id_bolsa)
+            .join(Estado, Estado.id_bolsa == Bolsa.id_bolsa)
+            .join(Alumno, Alumno.id_estado_actual == Estado.id_estado)
+            .join(Tarjeta, Tarjeta.id_alumno == Alumno.id_alumno)
+            .filter(Tarjeta.id_maestro_asignado == maestro.id_maestro)
+            .distinct()
+            .all()
+        )
+        ids = [row[0] for row in bolsa_ids_rows]
+
+        if not ids:
+            return {"id_maestro": str(maestro.id_maestro), "total": 0, "bolsas": []}
+
+        bolsas = db.query(Bolsa).filter(Bolsa.id_bolsa.in_(ids)).order_by(Bolsa.created_at).all()
+
+    # 4. Enriquecer cada bolsa con sus estados (igual que GET /bolsas)
+    result = []
+    for bolsa in bolsas:
+        estados = (
+            db.query(Estado)
+            .filter(Estado.id_bolsa == bolsa.id_bolsa)
+            .order_by(Estado.orden)
+            .all()
+        )
+        result.append({
+            "id_bolsa": str(bolsa.id_bolsa),
+            "nombre": bolsa.nombre,
+            "descripcion": bolsa.descripcion,
+            "estados_orden": bolsa.estados_orden,
+            "created_at": bolsa.created_at,
+            "total_estados": len(estados),
+            "estados_activos": sum(1 for e in estados if e.activo),
+            "estados": [
+                {"id_estado": e.id_estado, "nombre": e.nombre, "orden": e.orden, "activo": e.activo}
+                for e in estados
+            ]
+        })
+
+    return {"id_maestro": str(maestro.id_maestro), "total": len(result), "bolsas": result}
 
 
 @router.get("/{id_maestro}")

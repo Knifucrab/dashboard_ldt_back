@@ -18,7 +18,6 @@ class BolsaBase(BaseModel):
     """Esquema base de Bolsa con campos comunes"""
     nombre: str
     descripcion: str | None = None
-    activo: bool = True
 
 
 class BolsaCreate(BolsaBase):
@@ -31,7 +30,6 @@ class BolsaUpdate(BaseModel):
     nombre: str | None = None
     descripcion: str | None = None
     estados: list[str] | None = None
-    activo: bool | None = None
 
 
 class BolsaResponse(BolsaBase):

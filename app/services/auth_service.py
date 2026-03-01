@@ -64,6 +64,9 @@ def login_user(db: Session, email: str, password: str):
     # Obtener perfil
     perfil = db.query(Profile).filter(Profile.id_perfil == persona.id_perfil).first()
 
+    # Obtener id_maestro si el usuario es maestro
+    maestro = db.query(Maestro).filter(Maestro.id_persona == persona.id_persona).first()
+
     # Crear token JWT
     token = create_access_token(subject=persona.auth_user_id)
 
@@ -76,6 +79,7 @@ def login_user(db: Session, email: str, password: str):
             "roles": [str(r) for r in roles],
             "avatar": persona.foto_url,
             "id_perfil": perfil.id_perfil if perfil else None,
+            "id_maestro": str(maestro.id_maestro) if maestro else None,
             "perfil": {
                 "id_perfil": perfil.id_perfil,
                 "nivel_acceso": perfil.nivel_acceso,

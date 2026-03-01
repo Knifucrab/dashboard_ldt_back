@@ -75,15 +75,6 @@
       ]
     },
     {
-      "_id": "tc-bolsas-activas",
-      "name": "Get bolsas activas (GET /bolsas?activo=true)",
-      "method": "GET",
-      "url": "http://127.0.0.1:8000/bolsas?activo=true",
-      "header": [
-        { "key": "Authorization", "value": "Bearer {{token}}" }
-      ]
-    },
-    {
       "_id": "tc-bolsa-alumnos",
       "name": "Get alumnos por bolsa (GET /bolsas/{id}/alumnos)",
       "method": "GET",
@@ -109,6 +100,33 @@
       "header": [
         { "key": "Authorization", "value": "Bearer {{token}}" }
       ]
+    },
+    {
+      "_id": "tc-personas",
+      "name": "Get personas con id_maestro/id_alumno (GET /personas)",
+      "method": "GET",
+      "url": "http://127.0.0.1:8000/personas",
+      "header": [
+        { "key": "Authorization", "value": "Bearer {{token}}" }
+      ]
+    },
+    {
+      "_id": "tc-maestro-bolsas",
+      "name": "Get bolsas de un maestro (GET /maestros/{id}/bolsas)",
+      "method": "GET",
+      "url": "http://127.0.0.1:8000/maestros/{{idMaestro}}/bolsas",
+      "header": [
+        { "key": "Authorization", "value": "Bearer {{token}}" }
+      ]
+    },
+    {
+      "_id": "tc-maestro-bolsas-by-persona",
+      "name": "Get bolsas de maestro por id_persona (GET /maestros/{id}/bolsas?id_persona=x)",
+      "method": "GET",
+      "url": "http://127.0.0.1:8000/maestros/{{idMaestro}}/bolsas?id_persona={{maestroId}}",
+      "header": [
+        { "key": "Authorization", "value": "Bearer {{token}}" }
+      ]
     }
   ],
   "environments": [
@@ -120,6 +138,7 @@
         { "key": "password", "value": "Password123!" },
         { "key": "token", "value": "" },
         { "key": "maestroId", "value": "PONER_ID_PERSONA_DEL_MAESTRO_AQUI" },
+        { "key": "idMaestro", "value": "PONER_UUID_ID_MAESTRO_AQUI" },
         { "key": "alumnoId", "value": "PONER_ID_ALUMNO_AQUI" },
         { "key": "bolsaId", "value": "PONER_ID_BOLSA_AQUI" },
         { "key": "estadoId", "value": "1" }

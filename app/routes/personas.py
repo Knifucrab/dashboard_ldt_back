@@ -106,6 +106,7 @@ def get_personas(
         # Verificar si es maestro y agregar información de maestro
         maestro = db.query(Maestro).filter(Maestro.id_persona == persona.id_persona).first()
         if maestro:
+            persona_data["id_maestro"] = str(maestro.id_maestro)
             persona_data["maestro_info"] = {
                 "id_maestro": str(maestro.id_maestro),
                 "telefono": maestro.telefono,
@@ -133,6 +134,7 @@ def get_personas(
                             "email": persona_maestro.email
                         }
             
+            persona_data["id_alumno"] = str(alumno.id_alumno)
             persona_data["alumno_info"] = {
                 "id_alumno": str(alumno.id_alumno),
                 "dias": alumno.dias,

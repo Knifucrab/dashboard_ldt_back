@@ -35,7 +35,7 @@ def create_bolsa(
     por el trigger de base de datos.
     
     Args:
-        bolsa_data: Datos de la bolsa (nombre, descripcion, activo, estados)
+        bolsa_data: Datos de la bolsa (nombre, descripcion, estados)
         
     Returns:
         La bolsa creada con su id_bolsa y created_at
@@ -77,8 +77,7 @@ def create_bolsa(
     # Crear la nueva bolsa
     nueva_bolsa = Bolsa(
         nombre=bolsa_data.nombre,
-        descripcion=bolsa_data.descripcion,
-        activo=bolsa_data.activo
+        descripcion=bolsa_data.descripcion
     )
     
     db.add(nueva_bolsa)
@@ -127,13 +126,13 @@ def update_bolsa(
     
     Requiere autenticación de administrador (nivel_acceso=1).
     
-    Permite actualizar el nombre, descripción, estado activo y los estados asociados
+    Permite actualizar el nombre, descripción y los estados asociados
     de una bolsa. Si se proporcionan estados_ids, se reemplazarán todos los estados
     anteriores por los nuevos.
     
     Args:
         id_bolsa: UUID de la bolsa a actualizar
-        bolsa_data: Datos a actualizar (nombre, descripcion, estados, activo)
+        bolsa_data: Datos a actualizar (nombre, descripcion, estados)
         
     Returns:
         La bolsa actualizada
@@ -195,8 +194,6 @@ def update_bolsa(
         bolsa.nombre = bolsa_data.nombre
     if bolsa_data.descripcion is not None:
         bolsa.descripcion = bolsa_data.descripcion
-    if bolsa_data.activo is not None:
-        bolsa.activo = bolsa_data.activo
 
     # Actualizar estados asociados si se proporcionaron
     if bolsa_data.estados is not None:
@@ -237,7 +234,6 @@ def update_bolsa(
 @router.delete("/{id_bolsa}", status_code=status.HTTP_200_OK)
 def delete_bolsa(
     id_bolsa: str,
-    force: bool = False,
     auth_user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db)
 ):
@@ -245,15 +241,9 @@ def delete_bolsa(
     Elimina una bolsa del sistema.
     
     Requiere autenticación de administrador (nivel_acceso=1).
+    Elimina físicamente la bolsa y todos sus estados en cascada.
     
-    PRECAUCIÓN: Por defecto, marca la bolsa como inactiva (soft delete) para
-    preservar el historial y la trazabilidad. 
-    
-    Comportamiento:
-    - force=False (default): Marca la bolsa como activo=false (recomendado)
-    - force=True: Elimina físicamente la bolsa y todos sus estados en cascada
-    
-    ADVERTENCIA con force=True:
+    ADVERTENCIA:
     - Se eliminarán todos los estados asociados (ON DELETE CASCADE)
     - Si historial_estados referencia esos estados, el borrado puede:
       * Fallar si no hay ON DELETE CASCADE/SET NULL en historial_estados
@@ -262,7 +252,6 @@ def delete_bolsa(
       
     Args:
         id_bolsa: UUID de la bolsa a eliminar
-        force: Si es True, elimina físicamente; si es False, marca inactiva
         
     Returns:
         Mensaje de confirmación y detalles de la operación
@@ -309,54 +298,22 @@ def delete_bolsa(
 
     # Contar estados asociados
     estados_count = db.query(Estado).filter(Estado.id_bolsa == bolsa_uuid).count()
-    
-    # Nota: La verificación del historial se ha simplificado
-    # Para operaciones de producción, considera implementar una verificación más robusta
-    historial_count = 0
 
-    if not force:
-        # Soft delete: marcar como inactiva
-        bolsa.activo = False
-        db.commit()
-        
-        return {
-            "message": "Bolsa marcada como inactiva exitosamente",
-            "tipo_operacion": "soft_delete",
-            "id_bolsa": str(bolsa.id_bolsa),
-            "nombre": bolsa.nombre,
-            "estados_asociados": estados_count,
-            "registros_historial": historial_count,
-            "nota": "La bolsa y sus estados siguen en la base de datos pero marcados como inactivos"
-        }
-    else:
-        # Hard delete: eliminar físicamente
-        if historial_count > 0:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=(
-                    f"No se puede eliminar la bolsa porque tiene {historial_count} "
-                    f"registros en el historial. Para preservar la trazabilidad, "
-                    f"usa force=false para marcarla como inactiva en su lugar."
-                )
-            )
-        
-        # Eliminar la bolsa (los estados se eliminan en cascada)
-        db.delete(bolsa)
-        db.commit()
-        
-        return {
-            "message": "Bolsa eliminada exitosamente",
-            "tipo_operacion": "hard_delete",
-            "id_bolsa": str(id_bolsa),
-            "nombre": bolsa.nombre,
-            "estados_eliminados": estados_count,
-            "advertencia": "Esta operación es irreversible"
-        }
+    # Eliminar la bolsa (los estados se eliminan en cascada)
+    db.delete(bolsa)
+    db.commit()
+
+    return {
+        "message": "Bolsa eliminada exitosamente",
+        "id_bolsa": str(id_bolsa),
+        "nombre": bolsa.nombre,
+        "estados_eliminados": estados_count,
+        "advertencia": "Esta operación es irreversible"
+    }
 
 
 @router.get("", response_model=list[BolsaWithEstados])
 def get_bolsas(
-    activo: bool | None = None,
     auth_user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db)
 ):
@@ -364,9 +321,6 @@ def get_bolsas(
     Lista todas las bolsas del sistema.
     
     Requiere autenticación.
-    
-    Args:
-        activo: Filtrar por estado activo (True/False). Si es None, devuelve todas.
         
     Returns:
         Lista de bolsas con conteo de estados totales y activos
@@ -380,13 +334,7 @@ def get_bolsas(
             detail="Persona no encontrada"
         )
 
-    # Construir query base
-    query = db.query(Bolsa)
-    
-    if activo is not None:
-        query = query.filter(Bolsa.activo == activo)
-    
-    bolsas = query.all()
+    bolsas = db.query(Bolsa).all()
     
     # Enriquecer con información de estados
     result = []
@@ -400,7 +348,6 @@ def get_bolsas(
             "nombre": bolsa.nombre,
             "descripcion": bolsa.descripcion,
             "estados_orden": bolsa.estados_orden,
-            "activo": bolsa.activo,
             "created_at": bolsa.created_at,
             "total_estados": len(estados),
             "estados_activos": sum(1 for e in estados if e.activo),

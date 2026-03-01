@@ -520,6 +520,7 @@ def update_alumno(
     email: Optional[str] = Form(None),
     franja_horaria: Optional[str] = Form(None),
     motivo_oracion: Optional[str] = Form(None),
+    id_maestro: Optional[str] = Form(None, description="UUID del nuevo maestro a asignar al alumno"),
     dias: Optional[str] = Form(None, description="JSON string con los días disponibles"),
     foto: Optional[UploadFile] = File(None)
 ):
@@ -528,6 +529,7 @@ def update_alumno(
     Acepta multipart/form-data. La foto se sube a Supabase Storage.
     El campo 'dias' debe enviarse como JSON string.
     Todos los campos son opcionales, solo se actualizan los que se envían.
+    El campo 'id_maestro' permite reasignar el alumno a otro maestro (solo admin y pastor).
     """
     
     # 1. Obtener la persona autenticada
@@ -629,6 +631,24 @@ def update_alumno(
         alumno.franja_horaria = franja_horaria
     if motivo_oracion is not None:
         alumno.motivo_oracion = motivo_oracion
+
+    # 8b. Reasignar maestro si se proporcionó id_maestro (solo admin y pastor)
+    if id_maestro is not None:
+        if not es_admin:
+            person_roles_check = db.query(PersonRole).filter(PersonRole.person_id == persona_autenticada.id_persona).all()
+            roles_check = [pr.id_rol for pr in person_roles_check]
+            if 1 not in roles_check:  # no es pastor
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Solo administradores y pastores pueden reasignar el maestro de un alumno"
+                )
+        nuevo_maestro = db.query(Maestro).filter(Maestro.id_maestro == id_maestro).first()
+        if not nuevo_maestro:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Maestro con id {id_maestro} no encontrado"
+            )
+        tarjeta.id_maestro_asignado = nuevo_maestro.id_maestro
     
     # 9. Guardar cambios en la base de datos
     try:
