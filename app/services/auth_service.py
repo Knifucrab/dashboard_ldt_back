@@ -262,6 +262,7 @@ def register_maestro(
             "id_maestro": str(maestro.id_maestro),
             "email": persona.email,
             "name": f"{persona.nombre} {persona.apellido}",
+            "foto_url": persona.foto_url,
             "telefono": maestro.telefono,
             "direccion": maestro.direccion
         }

@@ -125,28 +125,24 @@ def get_bolsas_por_maestro(
                 detail=f"Maestro con id {id_maestro} no encontrado"
             )
 
-    # 3. Obtener bolsas según el perfil del usuario autenticado
-    if persona_autenticada.id_perfil == 1:
-        # Admin: todas las bolsas del sistema
-        bolsas = db.query(Bolsa).order_by(Bolsa.created_at).all()
-    else:
-        # Perfil 2 (Maestro): solo bolsas donde el maestro tiene alumnos asignados.
-        # Una sola consulta con JOIN: Bolsa → Estado → Alumno → Tarjeta
-        bolsa_ids_rows = (
-            db.query(Bolsa.id_bolsa)
-            .join(Estado, Estado.id_bolsa == Bolsa.id_bolsa)
-            .join(Alumno, Alumno.id_estado_actual == Estado.id_estado)
-            .join(Tarjeta, Tarjeta.id_alumno == Alumno.id_alumno)
-            .filter(Tarjeta.id_maestro_asignado == maestro.id_maestro)
-            .distinct()
-            .all()
-        )
-        ids = [row[0] for row in bolsa_ids_rows]
+    # 3. Obtener bolsas del maestro: JOIN Bolsa → Estado → Alumno → Tarjeta
+    #    filtrando por Tarjeta.id_maestro_asignado == maestro.id_maestro
+    #    (aplica para todos los perfiles — el path ya define de qué maestro son las bolsas)
+    bolsa_ids_rows = (
+        db.query(Bolsa.id_bolsa)
+        .join(Estado, Estado.id_bolsa == Bolsa.id_bolsa)
+        .join(Alumno, Alumno.id_estado_actual == Estado.id_estado)
+        .join(Tarjeta, Tarjeta.id_alumno == Alumno.id_alumno)
+        .filter(Tarjeta.id_maestro_asignado == maestro.id_maestro)
+        .distinct()
+        .all()
+    )
+    ids = [row[0] for row in bolsa_ids_rows]
 
-        if not ids:
-            return {"id_maestro": str(maestro.id_maestro), "total": 0, "bolsas": []}
+    if not ids:
+        return {"id_maestro": str(maestro.id_maestro), "total": 0, "bolsas": []}
 
-        bolsas = db.query(Bolsa).filter(Bolsa.id_bolsa.in_(ids)).order_by(Bolsa.created_at).all()
+    bolsas = db.query(Bolsa).filter(Bolsa.id_bolsa.in_(ids)).order_by(Bolsa.created_at).all()
 
     # 4. Enriquecer cada bolsa con sus estados (igual que GET /bolsas)
     result = []
