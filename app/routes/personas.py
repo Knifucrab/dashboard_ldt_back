@@ -1,5 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
+from sqlalchemy import and_
+from typing import Optional
+from datetime import date, datetime, timezone
 
 from app.dependencies.db import get_db
 from app.dependencies.auth import get_current_user_id
@@ -19,22 +22,32 @@ router = APIRouter(prefix="/personas", tags=["Personas"])
 @router.get("")
 def get_personas(
     auth_user_id: str = Depends(get_current_user_id),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    nombre: Optional[str] = Query(None, description="Busca por nombre o apellido (búsqueda parcial, case-insensitive)"),
+    desde: Optional[date] = Query(None, description="Filtro fecha desde (created_at ≥ desde), formato YYYY-MM-DD"),
+    hasta: Optional[date] = Query(None, description="Filtro fecha hasta (created_at ≤ hasta), formato YYYY-MM-DD"),
+    rol: Optional[int] = Query(None, description="Filtrar por id_rol (ej: 1=pastor, 2=maestro)"),
+    page: int = Query(1, ge=1, description="Número de página (comienza en 1)"),
 ):
     """
-    Devuelve la lista de todas las personas registradas en el sistema.
-    
-    Requiere autenticación. Solo accesible por pastores (rol=1).
-    Retorna información de la persona, su perfil y roles asignados.
-    """
+    Devuelve la lista paginada de personas registradas en el sistema (10 por página).
 
-    # Verificar que el usuario autenticado exista
+    Filtros opcionales:
+    - **nombre**: busca en nombre y apellido (parcial, case-insensitive).
+    - **desde** / **hasta**: rango de fecha de registro (`created_at`), formato `YYYY-MM-DD`.
+    - **rol**: filtra personas que tengan ese `id_rol` asignado.
+    - **page**: página a devolver.
+
+    Requiere autenticación. Solo accesible por pastores (perfil=1) o moderadores (perfil=2).
+    """
+    PAGE_SIZE = 10
+
+    # -----------------------------------------------------------------------
+    # 1. Verificar identidad y permisos
+    # -----------------------------------------------------------------------
     persona_autenticada = db.query(Persona).filter(Persona.auth_user_id == auth_user_id).first()
     if not persona_autenticada:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Persona no encontrada"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Persona no encontrada")
 
     es_administrador = persona_autenticada.id_perfil == 1
     es_moderador = persona_autenticada.id_perfil == 2
@@ -42,37 +55,68 @@ def get_personas(
     if not es_administrador and not es_moderador:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="No tienes permisos para ver personas"
+            detail="No tienes permisos para ver personas",
         )
 
-    # --- Administrador (id_perfil=1): devuelve todas las personas ---
+    # -----------------------------------------------------------------------
+    # 2. Construir query base según rol del usuario autenticado
+    # -----------------------------------------------------------------------
     if es_administrador:
-        personas = db.query(Persona).all()
-
-    # --- Moderador (id_perfil=2): devuelve sus alumnos + pastores + sí mismo ---
+        query = db.query(Persona)
     else:
+        # Moderador: solo ve sus alumnos + pastores + sí mismo
         maestro = db.query(Maestro).filter(Maestro.id_persona == persona_autenticada.id_persona).first()
         if not maestro:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="No se encontró el registro de maestro para este usuario"
+                detail="No se encontró el registro de maestro para este usuario",
             )
 
-        # IDs de personas de sus alumnos asignados
         tarjetas = db.query(Tarjeta).filter(Tarjeta.id_maestro_asignado == maestro.id_maestro).all()
         id_alumnos = [t.id_alumno for t in tarjetas]
         alumnos = db.query(Alumno).filter(Alumno.id_alumno.in_(id_alumnos)).all()
         id_personas_alumnos = {a.id_persona for a in alumnos}
 
-        # IDs de personas con rol=1 (pastor)
         roles_pastor = db.query(PersonRole).filter(PersonRole.id_rol == 1).all()
         id_personas_pastores = {pr.person_id for pr in roles_pastor}
 
-        # Unión: alumnos + pastores + sí mismo
         ids_visibles = id_personas_alumnos | id_personas_pastores | {persona_autenticada.id_persona}
+        query = db.query(Persona).filter(Persona.id_persona.in_(ids_visibles))
 
-        personas = db.query(Persona).filter(Persona.id_persona.in_(ids_visibles)).all()
+    # -----------------------------------------------------------------------
+    # 3. Aplicar filtros
+    # -----------------------------------------------------------------------
+    if nombre:
+        termino = f"%{nombre.strip()}%"
+        query = query.filter(
+            (Persona.nombre.ilike(termino)) | (Persona.apellido.ilike(termino))
+        )
 
+    if desde:
+        dt_desde = datetime(desde.year, desde.month, desde.day, tzinfo=timezone.utc)
+        query = query.filter(Persona.created_at >= dt_desde)
+
+    if hasta:
+        dt_hasta = datetime(hasta.year, hasta.month, hasta.day, 23, 59, 59, tzinfo=timezone.utc)
+        query = query.filter(Persona.created_at <= dt_hasta)
+
+    if rol is not None:
+        personas_con_rol = db.query(PersonRole.person_id).filter(PersonRole.id_rol == rol).subquery()
+        query = query.filter(Persona.id_persona.in_(personas_con_rol))
+
+    # -----------------------------------------------------------------------
+    # 4. Ordenar, contar y paginar
+    # -----------------------------------------------------------------------
+    query = query.order_by(Persona.created_at.desc())
+
+    total = query.count()
+    total_pages = max(1, -(-total // PAGE_SIZE))  # ceil division
+    offset = (page - 1) * PAGE_SIZE
+    personas = query.offset(offset).limit(PAGE_SIZE).all()
+
+    # -----------------------------------------------------------------------
+    # 5. Enriquecer resultados
+    # -----------------------------------------------------------------------
     result = []
     for persona in personas:
         perfil = db.query(Profile).filter(Profile.id_perfil == persona.id_perfil).first()
@@ -82,10 +126,7 @@ def get_personas(
         for pr in person_roles_list:
             role = db.query(Role).filter(Role.id_rol == pr.id_rol).first()
             if role:
-                roles_list.append({
-                    "id_rol": role.id_rol,
-                    "descripcion": role.descripcion
-                })
+                roles_list.append({"id_rol": role.id_rol, "descripcion": role.descripcion})
 
         persona_data = {
             "id_persona": str(persona.id_persona),
@@ -97,29 +138,25 @@ def get_personas(
             "perfil": {
                 "id_perfil": perfil.id_perfil,
                 "descripcion": perfil.descripcion,
-                "nivel_acceso": perfil.nivel_acceso
+                "nivel_acceso": perfil.nivel_acceso,
             } if perfil else None,
             "roles": roles_list,
-            "created_at": persona.created_at.isoformat() if persona.created_at else None
+            "created_at": persona.created_at.isoformat() if persona.created_at else None,
         }
 
-        # Verificar si es maestro y agregar información de maestro
-        maestro = db.query(Maestro).filter(Maestro.id_persona == persona.id_persona).first()
-        if maestro:
-            persona_data["id_maestro"] = str(maestro.id_maestro)
+        maestro_obj = db.query(Maestro).filter(Maestro.id_persona == persona.id_persona).first()
+        if maestro_obj:
+            persona_data["id_maestro"] = str(maestro_obj.id_maestro)
             persona_data["maestro_info"] = {
-                "id_maestro": str(maestro.id_maestro),
-                "telefono": maestro.telefono,
-                "direccion": maestro.direccion,
-                "created_at": maestro.created_at.isoformat() if maestro.created_at else None
+                "id_maestro": str(maestro_obj.id_maestro),
+                "telefono": maestro_obj.telefono,
+                "direccion": maestro_obj.direccion,
+                "created_at": maestro_obj.created_at.isoformat() if maestro_obj.created_at else None,
             }
 
-        # Verificar si es alumno y agregar información de alumno
-        alumno = db.query(Alumno).filter(Alumno.id_persona == persona.id_persona).first()
-        if alumno:
-            # Buscar el maestro asignado a través de la tabla tarjetas
-            tarjeta = db.query(Tarjeta).filter(Tarjeta.id_alumno == alumno.id_alumno).first()
-            
+        alumno_obj = db.query(Alumno).filter(Alumno.id_persona == persona.id_persona).first()
+        if alumno_obj:
+            tarjeta = db.query(Tarjeta).filter(Tarjeta.id_alumno == alumno_obj.id_alumno).first()
             maestro_asignado = None
             if tarjeta and tarjeta.id_maestro_asignado:
                 maestro_rel = db.query(Maestro).filter(Maestro.id_maestro == tarjeta.id_maestro_asignado).first()
@@ -131,25 +168,28 @@ def get_personas(
                             "id_persona": str(persona_maestro.id_persona),
                             "nombre": persona_maestro.nombre,
                             "apellido": persona_maestro.apellido,
-                            "email": persona_maestro.email
+                            "email": persona_maestro.email,
                         }
-            
-            persona_data["id_alumno"] = str(alumno.id_alumno)
+
+            persona_data["id_alumno"] = str(alumno_obj.id_alumno)
             persona_data["alumno_info"] = {
-                "id_alumno": str(alumno.id_alumno),
-                "dias": alumno.dias,
-                "franja_horaria": alumno.franja_horaria,
-                "motivo_oracion": alumno.motivo_oracion,
-                "id_estado_actual": alumno.id_estado_actual,
+                "id_alumno": str(alumno_obj.id_alumno),
+                "dias": alumno_obj.dias,
+                "franja_horaria": alumno_obj.franja_horaria,
+                "motivo_oracion": alumno_obj.motivo_oracion,
+                "id_estado_actual": alumno_obj.id_estado_actual,
                 "maestro_asignado": maestro_asignado,
-                "created_at": alumno.created_at.isoformat() if alumno.created_at else None
+                "created_at": alumno_obj.created_at.isoformat() if alumno_obj.created_at else None,
             }
 
         result.append(persona_data)
 
     return {
+        "total": total,
+        "page": page,
+        "page_size": PAGE_SIZE,
+        "total_pages": total_pages,
         "personas": result,
-        "total": len(result)
     }
 
 

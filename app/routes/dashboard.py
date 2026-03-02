@@ -9,6 +9,8 @@ Endpoints del Dashboard.
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from sqlalchemy import func
+from typing import Optional
+from uuid import UUID
 
 from app.dependencies.db import get_db
 from app.dependencies.auth import get_current_user_id
@@ -17,6 +19,7 @@ from app.models.person_role import PersonRole
 from app.models.profile import Profile
 from app.models.maestro import Maestro
 from app.models.alumno import Alumno
+from app.models.bolsa import Bolsa
 from app.models.tarjeta import Tarjeta
 from app.models.estado import Estado
 from app.models.historial_estado import HistorialEstado
@@ -224,23 +227,32 @@ def get_stats_maestro(
 def get_actividad_reciente(
     auth_user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db),
-    limite: int = Query(10, ge=1, le=50, description="Cantidad de eventos a devolver (máx. 50)"),
+    bolsa: Optional[UUID] = Query(None, description="Filtrar actividad por bolsa (id_bolsa)"),
+    page: int = Query(1, ge=1, description="Número de página (comienza en 1)"),
 ):
     """
-    Devuelve los últimos eventos del sistema (cambios de estado + observaciones).
+    Devuelve la actividad reciente del sistema (cambios de estado + observaciones)
+    con paginación de 6 resultados por página.
 
     - Pastor/Admin: ve la actividad de todos los alumnos.
     - Maestro: ve solo la actividad de sus alumnos asignados.
 
-    Cada evento tiene el campo **tipo**: `cambio_estado` | `observacion`.
-    """
-    persona, perfil = _get_persona_y_perfil(auth_user_id, db)
+    Filtros opcionales:
+    - **bolsa**: filtra alumnos cuyo estado actual pertenece a la bolsa indicada.
+    - **page**: página a devolver (tamaño fijo de 6 resultados).
 
+    Cada evento incluye el campo **tipo**: `cambio_estado` | `observacion`.
+    """
+    PAGE_SIZE = 6
+
+    persona, perfil = _get_persona_y_perfil(auth_user_id, db)
     es_admin_o_pastor = _es_pastor_o_admin(persona, perfil, db)
 
-    # Determinar qué alumnos puede ver
+    # -----------------------------------------------------------------------
+    # 1. Determinar qué alumnos puede ver el usuario
+    # -----------------------------------------------------------------------
     if es_admin_o_pastor:
-        alumnos_ids = [str(a.id_alumno) for a in db.query(Alumno.id_alumno).all()]
+        alumnos_query = db.query(Alumno.id_alumno)
     else:
         maestro = db.query(Maestro).filter(Maestro.id_persona == persona.id_persona).first()
         if not maestro:
@@ -249,11 +261,38 @@ def get_actividad_reciente(
                 detail="Usuario no tiene registro de maestro en el sistema",
             )
         tarjetas = db.query(Tarjeta).filter(Tarjeta.id_maestro_asignado == maestro.id_maestro).all()
-        alumnos_ids = [str(t.id_alumno) for t in tarjetas]
+        alumno_ids_maestro = [t.id_alumno for t in tarjetas]
+        if not alumno_ids_maestro:
+            return {"total": 0, "page": page, "page_size": PAGE_SIZE, "total_pages": 0, "actividad": []}
+        alumnos_query = db.query(Alumno.id_alumno).filter(Alumno.id_alumno.in_(alumno_ids_maestro))
+
+    # -----------------------------------------------------------------------
+    # 2. Aplicar filtro por bolsa (opcional)
+    #    Un alumno pertenece a la bolsa si su estado_actual.id_bolsa == bolsa
+    # -----------------------------------------------------------------------
+    if bolsa is not None:
+        bolsa_obj = db.query(Bolsa).filter(Bolsa.id_bolsa == bolsa).first()
+        if not bolsa_obj:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Bolsa no encontrada",
+            )
+        estados_bolsa = [
+            e.id_estado
+            for e in db.query(Estado.id_estado).filter(Estado.id_bolsa == bolsa).all()
+        ]
+        if not estados_bolsa:
+            return {"total": 0, "page": page, "page_size": PAGE_SIZE, "total_pages": 0, "actividad": []}
+        alumnos_query = alumnos_query.filter(Alumno.id_estado_actual.in_(estados_bolsa))
+
+    alumnos_ids = [str(row.id_alumno) for row in alumnos_query.all()]
 
     if not alumnos_ids:
-        return {"total": 0, "actividad": []}
+        return {"total": 0, "page": page, "page_size": PAGE_SIZE, "total_pages": 0, "actividad": []}
 
+    # -----------------------------------------------------------------------
+    # 3. Recolectar eventos
+    # -----------------------------------------------------------------------
     eventos = []
 
     # Cambios de estado
@@ -311,11 +350,23 @@ def get_actividad_reciente(
             },
         })
 
-    # Ordenar por fecha descendente y aplicar límite
+    # -----------------------------------------------------------------------
+    # 4. Ordenar, paginar y serializar fechas
+    # -----------------------------------------------------------------------
     eventos.sort(key=lambda e: e["fecha"], reverse=True)
-    eventos = eventos[:limite]
 
-    for e in eventos:
+    total = len(eventos)
+    total_pages = max(1, -(-total // PAGE_SIZE))  # ceil division
+    offset = (page - 1) * PAGE_SIZE
+    pagina = eventos[offset: offset + PAGE_SIZE]
+
+    for e in pagina:
         e["fecha"] = e["fecha"].isoformat()
 
-    return {"total": len(eventos), "actividad": eventos}
+    return {
+        "total": total,
+        "page": page,
+        "page_size": PAGE_SIZE,
+        "total_pages": total_pages,
+        "actividad": pagina,
+    }
