@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
 from typing import Optional
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timezone, timedelta
 
 from app.dependencies.db import get_db
 from app.dependencies.auth import get_current_user_id
@@ -92,12 +92,14 @@ def get_personas(
             (Persona.nombre.ilike(termino)) | (Persona.apellido.ilike(termino))
         )
 
+    UTC_MINUS_3 = timezone(timedelta(hours=-3))
+
     if desde:
-        dt_desde = datetime(desde.year, desde.month, desde.day, tzinfo=timezone.utc)
+        dt_desde = datetime(desde.year, desde.month, desde.day, 0, 0, 0, tzinfo=UTC_MINUS_3)
         query = query.filter(Persona.created_at >= dt_desde)
 
     if hasta:
-        dt_hasta = datetime(hasta.year, hasta.month, hasta.day, 23, 59, 59, tzinfo=timezone.utc)
+        dt_hasta = datetime(hasta.year, hasta.month, hasta.day, 23, 59, 59, tzinfo=UTC_MINUS_3)
         query = query.filter(Persona.created_at <= dt_hasta)
 
     if rol is not None:
@@ -131,6 +133,7 @@ def get_personas(
         persona_data = {
             "id_persona": str(persona.id_persona),
             "auth_user_id": str(persona.auth_user_id),
+            "id_alumno": None,
             "nombre": persona.nombre,
             "apellido": persona.apellido,
             "email": persona.email,
@@ -171,7 +174,7 @@ def get_personas(
                             "email": persona_maestro.email,
                         }
 
-            persona_data["id_alumno"] = str(alumno_obj.id_alumno)
+            persona_data["id_alumno"] = str(alumno_obj.id_alumno)  # overwrite None set above
             persona_data["alumno_info"] = {
                 "id_alumno": str(alumno_obj.id_alumno),
                 "dias": alumno_obj.dias,
