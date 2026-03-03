@@ -60,14 +60,17 @@ def get_maestros(
     result = []
     for m in maestros:
         persona = db.query(Persona).filter(Persona.id_persona == m.id_persona).first()
+        cantidad_alumnos = db.query(Tarjeta).filter(Tarjeta.id_maestro_asignado == m.id_maestro).count()
         result.append({
             "id_maestro": str(m.id_maestro),
             "id_persona": str(m.id_persona),
             "nombre": persona.nombre if persona else None,
             "apellido": persona.apellido if persona else None,
             "email": persona.email if persona else None,
+            "foto_url": persona.foto_url if persona else None,
             "telefono": m.telefono,
             "direccion": m.direccion,
+            "cantidad_alumnos": cantidad_alumnos,
             "created_at": m.created_at.isoformat() if getattr(m, "created_at", None) else None
         })
 
