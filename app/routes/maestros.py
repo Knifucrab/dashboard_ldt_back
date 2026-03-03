@@ -18,6 +18,7 @@ from app.models.bolsa import Bolsa
 from app.models.estado import Estado
 from app.models.alumno import Alumno
 from app.models.tarjeta import Tarjeta
+from app.integrations.storage import delete_foto
 
 router = APIRouter(prefix="/maestros", tags=["Maestros"])
 
@@ -529,6 +530,9 @@ def delete_maestro(
 
     persona = db.query(Persona).filter(Persona.id_persona == maestro.id_persona).first()
 
+    foto_url = persona.foto_url if persona else None
+    auth_user_id_maestro = str(persona.auth_user_id) if persona else None
+
     try:
         # Borrar la persona (las FK con ON DELETE CASCADE limpiarán maestro, person_roles, etc.)
         if persona:
@@ -539,5 +543,18 @@ def delete_maestro(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Error al eliminar maestro: {str(e)}")
+
+    # Borrar usuario de Supabase Auth (después del commit)
+    if auth_user_id_maestro:
+        try:
+            from app.integrations.supabase_client import supabase as sb_client
+            if sb_client:
+                sb_client.auth.admin.delete_user(auth_user_id_maestro)
+        except Exception as e:
+            print(f"[delete_maestro] Advertencia: no se pudo borrar usuario de Supabase Auth: {e}")
+
+    # Borrar foto del storage (después del commit para no revertir si falla)
+    if foto_url:
+        delete_foto(foto_url)
 
     return {"message": "Maestro eliminado correctamente", "id_maestro": str(id_maestro)}

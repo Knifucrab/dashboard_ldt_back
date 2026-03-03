@@ -19,6 +19,7 @@ from app.models.bolsa import Bolsa
 from app.models.observacion import Observacion
 from app.schemas.alumno import CambiarEstadoAlumno
 from app.schemas.observacion import ObservacionInput
+from app.integrations.storage import delete_foto
 
 router = APIRouter(prefix="/alumnos", tags=["Alumnos"])
 
@@ -772,12 +773,20 @@ def delete_alumno(
                     detail="No tienes permiso para eliminar este alumno"
                 )
 
-    # 5. Eliminar registros relacionados (tarjeta y alumno). Las FK con ON DELETE CASCADE
-    # deberían encargarse de otras relaciones, pero borramos explícitamente para claridad.
+    # 5. Obtener la persona asociada para recuperar foto_url y auth_user_id antes de borrar
+    persona_alumno = db.query(Persona).filter(Persona.id_persona == alumno.id_persona).first()
+    foto_url = persona_alumno.foto_url if persona_alumno else None
+    auth_user_id_alumno = str(persona_alumno.auth_user_id) if persona_alumno else None
+
+    # 6. Borrar la persona — la BD hace CASCADE a: alumno → tarjeta, observaciones, person_roles, etc.
     try:
-        if tarjeta:
-            db.delete(tarjeta)
-        db.delete(alumno)
+        if persona_alumno:
+            db.delete(persona_alumno)
+        else:
+            # Fallback: borrar manualmente si no hay persona
+            if tarjeta:
+                db.delete(tarjeta)
+            db.delete(alumno)
         db.commit()
     except Exception as e:
         db.rollback()
@@ -785,6 +794,20 @@ def delete_alumno(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error al eliminar el alumno: {str(e)}"
         )
+
+    # 7. Borrar usuario de Supabase Auth (después del commit)
+    if auth_user_id_alumno:
+        try:
+            from app.integrations.supabase_client import supabase as sb_client
+            if sb_client:
+                sb_client.auth.admin.delete_user(auth_user_id_alumno)
+        except Exception as e:
+            print(f"[delete_alumno] Advertencia: no se pudo borrar usuario de Supabase Auth: {e}")
+
+    # 8. Borrar foto del storage (después del commit para no revertir si falla)
+    print(f"[delete_alumno] foto_url capturada antes de borrar: {foto_url!r}")
+    if foto_url:
+        delete_foto(foto_url)
 
     return {"message": "Alumno eliminado correctamente", "id_alumno": str(id_alumno)}
 

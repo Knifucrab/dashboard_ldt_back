@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
 from typing import Optional
@@ -15,6 +15,7 @@ from app.models.alumno import Alumno
 from app.models.tarjeta import Tarjeta
 from app.schemas.auth import PersonaUpdate
 from app.core.security import hash_password
+from app.integrations.storage import upload_foto, delete_foto
 
 router = APIRouter(prefix="/personas", tags=["Personas"])
 
@@ -314,17 +315,21 @@ def get_persona_by_id(
 
 
 @router.put("/{id_persona}")
-def update_persona(
+async def update_persona(
     id_persona: str,
-    data: PersonaUpdate,
     auth_user_id: str = Depends(get_current_user_id),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    nombre: Optional[str] = Form(None),
+    apellido: Optional[str] = Form(None),
+    email: Optional[str] = Form(None),
+    password: Optional[str] = Form(None),
+    foto: Optional[UploadFile] = File(None),
 ):
     """
     Actualiza la información general de una persona.
-    
+
     Requiere autenticación. Solo accesible por pastores (rol=1).
-    Permite actualizar: nombre, apellido, email, foto_url y password.
+    Acepta multipart/form-data. Campos opcionales: nombre, apellido, email, password, foto (archivo).
     """
 
     # Verificar que el usuario autenticado exista
@@ -354,13 +359,14 @@ def update_persona(
             detail=f"Persona con id {id_persona} no encontrada"
         )
 
-    # Obtener datos a actualizar
-    update_data = data.model_dump(exclude_unset=True)
-
-    # Verificar si el email ya está en uso por otra persona
-    if "email" in update_data and update_data["email"] != persona.email:
+    # Actualizar campos de texto
+    if nombre is not None:
+        persona.nombre = nombre
+    if apellido is not None:
+        persona.apellido = apellido
+    if email is not None and email != persona.email:
         email_existente = db.query(Persona).filter(
-            Persona.email == update_data["email"],
+            Persona.email == email,
             Persona.id_persona != id_persona
         ).first()
         if email_existente:
@@ -368,18 +374,17 @@ def update_persona(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="El email ya está en uso por otra persona"
             )
+        persona.email = email
+    if password:
+        persona.password = hash_password(password)
 
-    # Actualizar campos
-    if "nombre" in update_data:
-        persona.nombre = update_data["nombre"]
-    if "apellido" in update_data:
-        persona.apellido = update_data["apellido"]
-    if "email" in update_data:
-        persona.email = update_data["email"]
-    if "foto_url" in update_data:
-        persona.foto_url = update_data["foto_url"]
-    if "password" in update_data and update_data["password"]:
-        persona.password = hash_password(update_data["password"])
+    # Subir nueva foto si se envió un archivo
+    if foto and foto.filename:
+        # Borrar la foto anterior del storage
+        if persona.foto_url:
+            delete_foto(persona.foto_url)
+        nueva_url = upload_foto(foto, "personas")
+        persona.foto_url = nueva_url
 
     try:
         db.commit()
@@ -393,7 +398,7 @@ def update_persona(
 
     # Obtener perfil actualizado
     perfil = db.query(Profile).filter(Profile.id_perfil == persona.id_perfil).first()
-    
+
     # Obtener roles
     person_roles_list = db.query(PersonRole).filter(PersonRole.person_id == persona.id_persona).all()
     roles_list = []
