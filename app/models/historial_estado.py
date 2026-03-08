@@ -10,7 +10,7 @@ class HistorialEstado(Base):
     id_historial = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
     id_alumno = Column(UUID(as_uuid=True), ForeignKey("alumnos.id_alumno", ondelete="CASCADE"), nullable=False)
-    id_estado = Column(Integer, ForeignKey("estados.id_estado"), nullable=False)
+    id_estado = Column(Integer, ForeignKey("estados.id_estado", ondelete="CASCADE"), nullable=False)
 
     comentario = Column(String(500))  # Cambiado de 'titulo' a 'comentario' para coincidir con la BD
     fecha_cambio = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

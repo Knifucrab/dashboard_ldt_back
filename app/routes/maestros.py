@@ -62,6 +62,7 @@ def get_maestros(
     for m in maestros:
         persona = db.query(Persona).filter(Persona.id_persona == m.id_persona).first()
         cantidad_alumnos = db.query(Tarjeta).filter(Tarjeta.id_maestro_asignado == m.id_maestro).count()
+        person_role = db.query(PersonRole).filter(PersonRole.person_id == m.id_persona).first()
         result.append({
             "id_maestro": str(m.id_maestro),
             "id_persona": str(m.id_persona),
@@ -71,6 +72,8 @@ def get_maestros(
             "foto_url": persona.foto_url if persona else None,
             "telefono": m.telefono,
             "direccion": m.direccion,
+            "id_perfil": persona.id_perfil if persona else None,
+            "id_rol": person_role.id_rol if person_role else None,
             "cantidad_alumnos": cantidad_alumnos,
             "created_at": m.created_at.isoformat() if getattr(m, "created_at", None) else None
         })

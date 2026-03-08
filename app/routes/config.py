@@ -4,7 +4,6 @@ from sqlalchemy.orm import Session
 from app.dependencies.db import get_db
 from app.dependencies.auth import get_current_user_id
 from app.models.persona import Persona
-from app.models.person_role import PersonRole
 from app.models.estado import Estado
 from app.schemas.estado import EstadoUpdate, EstadoResponse
 
@@ -18,8 +17,7 @@ def _verificar_pastor(auth_user_id: str, db: Session):
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Persona no encontrada"
         )
-    roles = [pr.id_rol for pr in db.query(PersonRole).filter(PersonRole.person_id == persona.id_persona).all()]
-    if 1 not in roles:
+    if persona.id_perfil != 1:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Solo los pastores pueden modificar la configuración de estados"

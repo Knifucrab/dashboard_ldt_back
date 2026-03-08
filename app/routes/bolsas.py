@@ -14,6 +14,7 @@ from app.models.profile import Profile
 from app.models.alumno import Alumno
 from app.models.tarjeta import Tarjeta
 from app.models.maestro import Maestro
+from app.models.observacion import Observacion
 from app.schemas.bolsa import BolsaCreate, BolsaResponse, BolsaWithEstados, BolsaUpdate, EstadoResponse
 
 router = APIRouter(prefix="/bolsas", tags=["Bolsas"])
@@ -460,3 +461,79 @@ def get_alumnos_por_bolsa(
         "descripcion": bolsa.descripcion,
         "estados": estados_con_alumnos
     }
+
+
+@router.delete("/{id_bolsa}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_bolsa(
+    id_bolsa: UUID,
+    auth_user_id: str = Depends(get_current_user_id),
+    db: Session = Depends(get_db)
+):
+    """
+    Elimina una bolsa y todo su contenido en cascada:
+    estados → historial_estados, tarjetas (y alumnos relacionados).
+
+    Requiere autenticación de administrador (nivel_acceso=1).
+    """
+
+    # Verificar usuario autenticado
+    persona_autenticada = db.query(Persona).filter(Persona.auth_user_id == auth_user_id).first()
+    if not persona_autenticada:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Persona no encontrada"
+        )
+
+    # Verificar que sea administrador
+    perfil = db.query(Profile).filter(Profile.id_perfil == persona_autenticada.id_perfil).first()
+    if not perfil or perfil.nivel_acceso != 1:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo los administradores pueden eliminar bolsas"
+        )
+
+    # Verificar que la bolsa exista
+    bolsa = db.query(Bolsa).filter(Bolsa.id_bolsa == id_bolsa).first()
+    if not bolsa:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Bolsa no encontrada"
+        )
+
+    # Obtener estados de esta bolsa
+    estados = db.query(Estado).filter(Estado.id_bolsa == id_bolsa).all()
+    estado_ids = [e.id_estado for e in estados]
+
+    # Obtener estados de esta bolsa
+    estados = db.query(Estado).filter(Estado.id_bolsa == id_bolsa).all()
+    estado_ids = [e.id_estado for e in estados]
+
+    try:
+        if estado_ids:
+            # Alumnos vinculados a esta bolsa (via tarjetas → id_estado_actual)
+            alumno_ids = [
+                t.id_alumno for t in
+                db.query(Tarjeta).filter(Tarjeta.id_estado_actual.in_(estado_ids)).all()
+            ]
+
+            if alumno_ids:
+                # Borrar historial de esos alumnos (puede apuntar a estados de otras bolsas)
+                db.query(HistorialEstado).filter(
+                    HistorialEstado.id_alumno.in_(alumno_ids)
+                ).delete(synchronize_session=False)
+
+                # Borrar alumnos → CASCADE borra tarjetas y observaciones
+                db.query(Alumno).filter(
+                    Alumno.id_alumno.in_(alumno_ids)
+                ).delete(synchronize_session=False)
+
+        # Borrar bolsa → CASCADE: estados → CASCADE: historial_estados + tarjetas restantes
+        db.query(Bolsa).filter(Bolsa.id_bolsa == id_bolsa).delete(synchronize_session=False)
+        db.commit()
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al eliminar bolsa: {str(e)}"
+        )

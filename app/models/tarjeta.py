@@ -10,7 +10,7 @@ class Tarjeta(Base):
     id_tarjeta = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
     id_alumno = Column(UUID(as_uuid=True), ForeignKey("alumnos.id_alumno", ondelete="CASCADE"), unique=True, nullable=False)
-    id_estado_actual = Column(ForeignKey("estados.id_estado"), nullable=False)
+    id_estado_actual = Column(ForeignKey("estados.id_estado", ondelete="CASCADE"), nullable=False)
     id_maestro_asignado = Column(UUID(as_uuid=True), ForeignKey("maestros.id_maestro"))
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
