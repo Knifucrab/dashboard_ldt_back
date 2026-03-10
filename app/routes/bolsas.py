@@ -232,87 +232,6 @@ def update_bolsa(
     return bolsa
 
 
-@router.delete("/{id_bolsa}", status_code=status.HTTP_200_OK)
-def delete_bolsa(
-    id_bolsa: str,
-    auth_user_id: str = Depends(get_current_user_id),
-    db: Session = Depends(get_db)
-):
-    """
-    Elimina una bolsa del sistema.
-    
-    Requiere autenticación de administrador (nivel_acceso=1).
-    Elimina físicamente la bolsa y todos sus estados en cascada.
-    
-    ADVERTENCIA:
-    - Se eliminarán todos los estados asociados (ON DELETE CASCADE)
-    - Si historial_estados referencia esos estados, el borrado puede:
-      * Fallar si no hay ON DELETE CASCADE/SET NULL en historial_estados
-      * Eliminar historial si hay ON DELETE CASCADE
-      * Dejar huérfanos si hay ON DELETE SET NULL
-      
-    Args:
-        id_bolsa: UUID de la bolsa a eliminar
-        
-    Returns:
-        Mensaje de confirmación y detalles de la operación
-    """
-    
-    # Convertir el id_bolsa a UUID
-    try:
-        bolsa_uuid = UUID(id_bolsa)
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="ID de bolsa inválido. Debe ser un UUID válido"
-        )
-    
-    # Verificar que el usuario autenticado exista
-    persona_autenticada = db.query(Persona).filter(Persona.auth_user_id == auth_user_id).first()
-    if not persona_autenticada:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Persona no encontrada"
-        )
-
-    # Verificar que sea administrador
-    perfil = db.query(Profile).filter(Profile.id_perfil == persona_autenticada.id_perfil).first()
-    if not perfil:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Perfil no encontrado"
-        )
-
-    if perfil.nivel_acceso != 1:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Solo los administradores pueden eliminar bolsas"
-        )
-
-    # Buscar la bolsa
-    bolsa = db.query(Bolsa).filter(Bolsa.id_bolsa == bolsa_uuid).first()
-    if not bolsa:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Bolsa con id {id_bolsa} no encontrada"
-        )
-
-    # Contar estados asociados
-    estados_count = db.query(Estado).filter(Estado.id_bolsa == bolsa_uuid).count()
-
-    # Eliminar la bolsa (los estados se eliminan en cascada)
-    db.delete(bolsa)
-    db.commit()
-
-    return {
-        "message": "Bolsa eliminada exitosamente",
-        "id_bolsa": str(id_bolsa),
-        "nombre": bolsa.nombre,
-        "estados_eliminados": estados_count,
-        "advertencia": "Esta operación es irreversible"
-    }
-
-
 @router.get("", response_model=list[BolsaWithEstados])
 def get_bolsas(
     auth_user_id: str = Depends(get_current_user_id),
@@ -499,10 +418,6 @@ def delete_bolsa(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Bolsa no encontrada"
         )
-
-    # Obtener estados de esta bolsa
-    estados = db.query(Estado).filter(Estado.id_bolsa == id_bolsa).all()
-    estado_ids = [e.id_estado for e in estados]
 
     # Obtener estados de esta bolsa
     estados = db.query(Estado).filter(Estado.id_bolsa == id_bolsa).all()
