@@ -15,6 +15,7 @@ from app.models.alumno import Alumno
 from app.models.tarjeta import Tarjeta
 from app.models.maestro import Maestro
 from app.models.observacion import Observacion
+from app.models.person_role import PersonRole
 from app.schemas.bolsa import BolsaCreate, BolsaResponse, BolsaWithEstados, BolsaUpdate, EstadoResponse
 
 router = APIRouter(prefix="/bolsas", tags=["Bolsas"])
@@ -419,30 +420,85 @@ def delete_bolsa(
             detail="Bolsa no encontrada"
         )
 
-    # Obtener estados de esta bolsa
-    estados = db.query(Estado).filter(Estado.id_bolsa == id_bolsa).all()
-    estado_ids = [e.id_estado for e in estados]
+    # 1. Obtener IDs de los estados de esta bolsa
+    estado_ids = [
+        e.id_estado for e in
+        db.query(Estado.id_estado).filter(Estado.id_bolsa == id_bolsa).all()
+    ]
 
     try:
         if estado_ids:
-            # Alumnos vinculados a esta bolsa (via tarjetas → id_estado_actual)
-            alumno_ids = [
-                t.id_alumno for t in
-                db.query(Tarjeta).filter(Tarjeta.id_estado_actual.in_(estado_ids)).all()
-            ]
+            # 2. Obtener alumnos cuyo estado actual pertenece a esta bolsa.
+            #    Se usa Alumno.id_estado_actual directamente porque no tiene FK y no
+            #    se borra en cascada automáticamente desde la BD.
+            alumnos = db.query(Alumno.id_alumno, Alumno.id_persona).filter(
+                Alumno.id_estado_actual.in_(estado_ids)
+            ).all()
+            alumno_ids = [a.id_alumno for a in alumnos]
+            persona_ids = [a.id_persona for a in alumnos]
 
             if alumno_ids:
-                # Borrar historial de esos alumnos (puede apuntar a estados de otras bolsas)
+                # 3. Borrar observaciones (FK id_alumno CASCADE, explícito para evitar
+                #    conflicto con id_autor RESTRICT al borrar personas más adelante)
+                db.query(Observacion).filter(
+                    Observacion.id_alumno.in_(alumno_ids)
+                ).delete(synchronize_session=False)
+
+                # 4. Borrar historial de esos alumnos
                 db.query(HistorialEstado).filter(
                     HistorialEstado.id_alumno.in_(alumno_ids)
                 ).delete(synchronize_session=False)
 
-                # Borrar alumnos → CASCADE borra tarjetas y observaciones
+                # 5. Borrar tarjetas (FK id_alumno + id_estado_actual, ambas con CASCADE en BD)
+                db.query(Tarjeta).filter(
+                    Tarjeta.id_alumno.in_(alumno_ids)
+                ).delete(synchronize_session=False)
+
+                # 6. Borrar alumnos
                 db.query(Alumno).filter(
                     Alumno.id_alumno.in_(alumno_ids)
                 ).delete(synchronize_session=False)
 
-        # Borrar bolsa → CASCADE: estados → CASCADE: historial_estados + tarjetas restantes
+            if persona_ids:
+                # 7a. Anular cambiado_por en historial_estados que apunte a estas personas.
+                #     La columna no tiene ondelete, por defecto es NO ACTION → bloquea el DELETE.
+                db.query(HistorialEstado).filter(
+                    HistorialEstado.cambiado_por.in_(persona_ids)
+                ).update({HistorialEstado.cambiado_por: None}, synchronize_session=False)
+
+                # 7b. Borrar observaciones donde estas personas son el autor (id_autor RESTRICT).
+                #     El paso 3 ya borró las observaciones de los alumnos de esta bolsa,
+                #     pero estas personas pueden haber escrito observaciones para otros alumnos.
+                db.query(Observacion).filter(
+                    Observacion.id_autor.in_(persona_ids)
+                ).delete(synchronize_session=False)
+
+                # 8. Borrar roles de esas personas (FK person_id CASCADE)
+                db.query(PersonRole).filter(
+                    PersonRole.person_id.in_(persona_ids)
+                ).delete(synchronize_session=False)
+
+                # 9. Borrar personas
+                db.query(Persona).filter(
+                    Persona.id_persona.in_(persona_ids)
+                ).delete(synchronize_session=False)
+
+            # 10. Borrar cualquier historial que aún apunte a estos estados (de otros alumnos)
+            db.query(HistorialEstado).filter(
+                HistorialEstado.id_estado.in_(estado_ids)
+            ).delete(synchronize_session=False)
+
+            # 11. Borrar tarjetas restantes que apunten a estos estados
+            db.query(Tarjeta).filter(
+                Tarjeta.id_estado_actual.in_(estado_ids)
+            ).delete(synchronize_session=False)
+
+            # 12. Borrar los estados
+            db.query(Estado).filter(
+                Estado.id_bolsa == id_bolsa
+            ).delete(synchronize_session=False)
+
+        # 13. Borrar la bolsa
         db.query(Bolsa).filter(Bolsa.id_bolsa == id_bolsa).delete(synchronize_session=False)
         db.commit()
 
