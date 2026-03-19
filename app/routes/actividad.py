@@ -19,6 +19,7 @@ from app.models.person_role import PersonRole
 from app.models.profile import Profile
 from app.models.maestro import Maestro
 from app.models.alumno import Alumno
+from app.models.bolsa import Bolsa
 from app.models.tarjeta import Tarjeta
 from app.models.estado import Estado
 from app.models.historial_estado import HistorialEstado
@@ -111,6 +112,10 @@ def get_actividad_global(
                 else None
             )
             estado_obj = db.query(Estado).filter(Estado.id_estado == reg.id_estado).first()
+            bolsa_obj = (
+                db.query(Bolsa).filter(Bolsa.id_bolsa == estado_obj.id_bolsa).first()
+                if estado_obj and estado_obj.id_bolsa else None
+            )
             autor_obj = (
                 db.query(Persona).filter(Persona.id_persona == reg.cambiado_por).first()
                 if reg.cambiado_por
@@ -127,6 +132,7 @@ def get_actividad_global(
                         "apellido": persona_alumno.apellido if persona_alumno else None,
                     },
                     "estado_nombre": estado_obj.nombre if estado_obj else None,
+                    "bolsa_nombre": bolsa_obj.nombre if bolsa_obj else None,
                     "comentario": reg.comentario,
                     "autor": {
                         "id_persona": str(autor_obj.id_persona) if autor_obj else None,
