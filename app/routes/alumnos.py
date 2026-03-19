@@ -356,7 +356,7 @@ def create_alumno(
     nueva_tarjeta = Tarjeta(
         id_alumno=nuevo_alumno.id_alumno,
         id_maestro_asignado=id_maestro_asignado,
-        id_estado_actual=1  # Estado "Activo" por defecto
+        id_estado_actual=nuevo_alumno.id_estado_actual
     )
     db.add(nueva_tarjeta)
     
