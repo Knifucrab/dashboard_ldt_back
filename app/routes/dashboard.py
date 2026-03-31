@@ -375,3 +375,115 @@ def get_actividad_reciente(
         "total_pages": total_pages,
         "actividad": pagina,
     }
+
+
+# ---------------------------------------------------------------------------
+# GET /dashboard/distribucion_estado/{id_persona}
+# ---------------------------------------------------------------------------
+
+@router.get("/distribucion_estado/{id_persona}")
+def get_distribucion_estado(
+    id_persona: UUID,
+    auth_user_id: str = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+):
+    """
+    Distribución de alumnos por estado, agrupada por bolsa.
+
+    - Si id_persona corresponde a un maestro: devuelve solo las bolsas donde
+      tiene alumnos asignados, con la cantidad de alumnos por estado dentro
+      de cada bolsa.
+    - Si id_persona corresponde a un pastor/admin: devuelve todas las bolsas
+      con la distribución completa de alumnos por estado.
+
+    Autorización:
+    - Pastor/Admin puede consultar cualquier id_persona.
+    - Un maestro solo puede consultar su propio id_persona.
+    """
+    auth_persona, auth_perfil = _get_persona_y_perfil(auth_user_id, db)
+    es_admin_o_pastor = _es_pastor_o_admin(auth_persona, auth_perfil, db)
+
+    # Verificar que la persona solicitada existe
+    target_persona = db.query(Persona).filter(Persona.id_persona == id_persona).first()
+    if not target_persona:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Persona no encontrada")
+
+    # Autorización: un maestro solo puede ver su propia distribución
+    if not es_admin_o_pastor:
+        if str(auth_persona.id_persona) != str(id_persona):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Solo puedes consultar tu propia distribución",
+            )
+
+    # Determinar el rol de la persona consultada
+    target_perfil = db.query(Profile).filter(Profile.id_perfil == target_persona.id_perfil).first()
+    target_es_admin = (
+        _es_pastor_o_admin(target_persona, target_perfil, db) if target_perfil else False
+    )
+
+    # -----------------------------------------------------------------------
+    # Obtener tarjetas según el rol de la persona consultada
+    # -----------------------------------------------------------------------
+    if target_es_admin:
+        tarjetas = db.query(Tarjeta).all()
+    else:
+        maestro = db.query(Maestro).filter(Maestro.id_persona == id_persona).first()
+        if not maestro:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="La persona no es maestro ni administrador",
+            )
+        tarjetas = db.query(Tarjeta).filter(Tarjeta.id_maestro_asignado == maestro.id_maestro).all()
+
+    # -----------------------------------------------------------------------
+    # Precargar estados para evitar N+1
+    # -----------------------------------------------------------------------
+    estado_ids = {t.id_estado_actual for t in tarjetas if t.id_estado_actual is not None}
+    estados_map: dict = {}
+    if estado_ids:
+        for e in db.query(Estado).filter(Estado.id_estado.in_(estado_ids)).all():
+            estados_map[e.id_estado] = e
+
+    # -----------------------------------------------------------------------
+    # Agrupar: {id_bolsa: {id_estado: cantidad}}
+    # -----------------------------------------------------------------------
+    bolsa_estado_count: dict = {}
+    for t in tarjetas:
+        estado = estados_map.get(t.id_estado_actual)
+        if not estado or not estado.id_bolsa:
+            continue
+        bid = str(estado.id_bolsa)
+        bolsa_estado_count.setdefault(bid, {})
+        bolsa_estado_count[bid][estado.id_estado] = bolsa_estado_count[bid].get(estado.id_estado, 0) + 1
+
+    # Precargar bolsas
+    bolsas_map: dict = {}
+    if bolsa_estado_count:
+        for b in db.query(Bolsa).filter(Bolsa.id_bolsa.in_(list(bolsa_estado_count.keys()))).all():
+            bolsas_map[str(b.id_bolsa)] = b
+
+    # -----------------------------------------------------------------------
+    # Construir respuesta
+    # -----------------------------------------------------------------------
+    resultado = []
+    for bid, estado_counts in bolsa_estado_count.items():
+        bolsa_obj = bolsas_map.get(bid)
+        estados_lista = [
+            {
+                "id_estado": id_estado,
+                "nombre_estado": estados_map[id_estado].nombre if id_estado in estados_map else None,
+                "cantidad": cantidad,
+            }
+            for id_estado, cantidad in sorted(estado_counts.items())
+        ]
+        resultado.append({
+            "id_bolsa": bid,
+            "nombre_bolsa": bolsa_obj.nombre if bolsa_obj else None,
+            "total_alumnos": sum(e["cantidad"] for e in estados_lista),
+            "estados": estados_lista,
+        })
+
+    resultado.sort(key=lambda x: x["nombre_bolsa"] or "")
+
+    return resultado
