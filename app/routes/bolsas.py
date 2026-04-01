@@ -383,6 +383,94 @@ def get_alumnos_por_bolsa(
     }
 
 
+@router.get("/maestro/{id_maestro}")
+def get_bolsas_por_maestro(
+    id_maestro: UUID,
+    auth_user_id: str = Depends(get_current_user_id),
+    db: Session = Depends(get_db)
+):
+    """
+    Devuelve las bolsas donde el maestro tiene alumnos asignados.
+
+    Para cada bolsa se listan TODOS sus estados con la cantidad de alumnos
+    asignados a ese maestro en cada estado (puede ser 0).
+
+    - id_maestro: UUID del maestro
+    """
+
+    # 1. Verificar usuario autenticado
+    persona_autenticada = db.query(Persona).filter(Persona.auth_user_id == auth_user_id).first()
+    if not persona_autenticada:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Persona no encontrada"
+        )
+
+    # 2. Verificar que el maestro existe
+    maestro = db.query(Maestro).filter(Maestro.id_maestro == id_maestro).first()
+    if not maestro:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Maestro con id {id_maestro} no encontrado"
+        )
+
+    # 3. Obtener todos los alumnos asignados a este maestro via tarjetas
+    tarjetas = db.query(Tarjeta).filter(Tarjeta.id_maestro_asignado == id_maestro).all()
+    if not tarjetas:
+        return []
+
+    alumno_ids = [t.id_alumno for t in tarjetas]
+
+    # 4. Obtener id_estado_actual de esos alumnos y contar por estado
+    alumnos = db.query(Alumno).filter(Alumno.id_alumno.in_(alumno_ids)).all()
+
+    # Mapa: id_estado → cantidad de alumnos de este maestro en ese estado
+    conteo_por_estado: dict[int, int] = {}
+    for alumno in alumnos:
+        eid = alumno.id_estado_actual
+        conteo_por_estado[eid] = conteo_por_estado.get(eid, 0) + 1
+
+    # 5. Obtener los estados que tienen alumnos de este maestro
+    estado_ids_con_alumnos = list(conteo_por_estado.keys())
+    estados_con_alumnos = db.query(Estado).filter(
+        Estado.id_estado.in_(estado_ids_con_alumnos)
+    ).all()
+
+    # 6. Determinar las bolsas afectadas (solo las que tienen al menos un alumno de este maestro)
+    bolsa_ids = list({e.id_bolsa for e in estados_con_alumnos if e.id_bolsa is not None})
+    if not bolsa_ids:
+        return []
+
+    bolsas = db.query(Bolsa).filter(Bolsa.id_bolsa.in_(bolsa_ids)).all()
+
+    # 7. Para cada bolsa obtener TODOS sus estados y adjuntar el conteo
+    result = []
+    for bolsa in bolsas:
+        todos_estados = db.query(Estado).filter(
+            Estado.id_bolsa == bolsa.id_bolsa
+        ).order_by(Estado.orden).all()
+
+        estados_data = [
+            {
+                "id_estado": estado.id_estado,
+                "nombre": estado.nombre,
+                "orden": estado.orden,
+                "activo": estado.activo,
+                "total_alumnos": conteo_por_estado.get(estado.id_estado, 0)
+            }
+            for estado in todos_estados
+        ]
+
+        result.append({
+            "id_bolsa": str(bolsa.id_bolsa),
+            "nombre": bolsa.nombre,
+            "descripcion": bolsa.descripcion,
+            "estados": estados_data
+        })
+
+    return result
+
+
 @router.delete("/{id_bolsa}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_bolsa(
     id_bolsa: UUID,
